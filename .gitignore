@@ -1,0 +1,17 @@
+# 编译产物
+*.kpm
+*.o
+*.ko
+
+# KernelPatch 子模块
+KernelPatch/
+
+# 编译输出目录
+target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

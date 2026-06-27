@@ -1,0 +1,144 @@
+name: Build KPM
+
+# ============================================================
+# GitHub Actions 工作流 - 自动编译 KPM 模块
+# ============================================================
+# 触发条件:
+#   1. push 到仓库时 (当 .c 文件或 workflow 文件被修改)
+#   2. 手动触发 (workflow_dispatch)
+#   3. 每天定时触发 (可选)
+#
+# 编译产物(.kpm 文件)可在 Actions 页面的 Artifacts 中下载
+# ============================================================
+
+on:
+  push:
+    paths:
+      - ".github/workflows/**"
+      - "**.c"
+      - "**.h"
+
+  # 手动触发 (推荐使用这种方式!)
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "是否发布 Release"
+        required: false
+        default: "false"
+      version:
+        description: "Release 版本号"
+        required: false
+        default: "2025062700"
+
+jobs:
+  Build-on-Ubuntu:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TZ: UTC-8
+      # 设置 NDK 路径, 供 Makefile 使用
+      ANDROID_NDK_LATEST_HOME: /tmp/android-ndk
+
+    outputs:
+      kpm_list: ${{ steps.list-kpms.outputs.kpm_list }}
+
+    steps:
+      # 步骤1: 检出代码(含子模块)
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+          fetch-depth: 1
+
+      # 步骤2: 下载 Android NDK (ARM64 交叉编译工具链)
+      - name: Setup Android NDK
+        run: |
+          NDK_VERSION="r27c"
+          NDK_ZIP="android-ndk-${NDK_VERSION}-linux.zip"
+          NDK_URL="https://dl.google.com/android/repository/${NDK_ZIP}"
+
+          echo "Downloading Android NDK ${NDK_VERSION}..."
+          wget -q ${NDK_URL} -O /tmp/${NDK_ZIP}
+
+          echo "Extracting NDK..."
+          unzip -q /tmp/${NDK_ZIP} -d /tmp/
+          mv /tmp/android-ndk-${NDK_VERSION} /tmp/android-ndk
+
+          echo "NDK ready at /tmp/android-ndk"
+          ls /tmp/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android*-clang | head -3
+
+      # 步骤3: 安装依赖
+      - name: Install dependencies
+        run: |
+          sudo apt update -y
+          sudo apt install llvm -y
+
+      # 步骤4: 编译所有 KPM 模块
+      - name: Build KPM
+        run: |
+          mkdir target
+
+          # 遍历所有子目录, 对每个模块执行 make
+          for dir in $(ls -d */ | grep -v '^KernelPatch/$\|^target/$'); do
+            if [ ! -f ${dir}archive ]; then
+              echo "Building module: ${dir}"
+              make -C ${dir} || echo "Failed to build ${dir}, continuing..."
+              mv ${dir}*.kpm target 2>/dev/null || true
+            fi
+          done
+
+          echo "=== Build Results ==="
+          ls -la target/ || echo "No KPM files generated"
+
+      # 步骤5: 生成 KPM 列表
+      - name: Generate KPM list
+        id: list-kpms
+        run: |
+          kpms=$(ls target/*.kpm | xargs -n1 basename | jq -R -s -c 'split("\n")[:-1]')
+          echo "kpm_list=${kpms}" >> "${GITHUB_OUTPUT}"
+
+      # 步骤6: 上传所有 kpm 作为单个 Artifact
+      - name: Upload all KPMS
+        uses: actions/upload-artifact@v7
+        with:
+          name: all_kpms
+          path: target
+
+      # 步骤7: 发布 Release (仅手动触发时)
+      - name: Upload release
+        if: github.event.inputs.release == 'true'
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ github.event.inputs.version }}
+          tag: ${{ github.event.inputs.version }}
+          artifacts: "target/*.kpm"
+          allowUpdates: true
+          generateReleaseNotes: true
+          makeLatest: true
+          omitBodyDuringUpdate: true
+          replacesArtifacts: true
+
+  # 步骤8: 分别上传每个 kpm(方便单独下载)
+  Upload-artifacts:
+    needs: Build-on-Ubuntu
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        kpm: ${{ fromJson(needs.Build-on-Ubuntu.outputs.kpm_list) }}
+
+    steps:
+      - name: Download target
+        uses: actions/download-artifact@v8
+        with:
+          name: all_kpms
+
+      - name: Upload ${{ matrix.kpm }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.kpm }}
+          path: ${{ matrix.kpm }}
+          archive: false
