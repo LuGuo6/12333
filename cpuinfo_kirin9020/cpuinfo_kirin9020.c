@@ -45,24 +45,24 @@
 #include <linux/printk.h>
 #include <linux/string.h>
 #include <linux/version.h>
-<<<<<<< HEAD
 #include <linux/errno.h>
 
 #include "cpuinfo_kirin9020.h"
-
-// 声明内核函数 (通过 kallsyms 动态解析)
-long kfunc_def(strncpy_from_user)(char *dst, const char __user *src, long count);
-unsigned long kfunc_def(copy_to_user)(void __user *to, const void *from, unsigned long n);
-=======
-#include <linux/uaccess.h>
-#include <linux/errno.h>
-
-#include "cpuinfo_kirin9020.h"
->>>>>>> a0315555b4e084263358714ed623813de00d1939
 
 #ifndef CPUINFO_VERSION
 #define CPUINFO_VERSION "1.0.0"
 #endif
+
+// ============================================================
+// 内核函数指针 (通过 kallsyms 动态解析, 避免依赖内核头文件)
+// ============================================================
+
+static long (*strncpy_from_user_fn)(char *dst, const char __user *src, long count) = NULL;
+static unsigned long (*copy_to_user_fn)(void __user *to, const void *from, unsigned long n) = NULL;
+
+// 用宏封装, 在代码中直接使用标准函数名
+#define strncpy_from_user(dst, src, count) strncpy_from_user_fn(dst, src, count)
+#define copy_to_user(to, from, n)          copy_to_user_fn(to, from, n)
 
 // ============================================================
 // 模块元信息
@@ -309,6 +309,14 @@ static long inline_hook_init(const char *args, const char *event,
   g_state.enabled = 1;
   pending_cpuinfo_open = 0;
 
+  // 动态解析内核函数 (避免依赖内核头文件)
+  strncpy_from_user_fn = (typeof(strncpy_from_user_fn))
+      kallsyms_lookup_name("strncpy_from_user");
+  copy_to_user_fn = (typeof(copy_to_user_fn))
+      kallsyms_lookup_name("copy_to_user");
+  pr_info("strncpy_from_user=%px copy_to_user=%px\n",
+          strncpy_from_user_fn, copy_to_user_fn);
+
   // 查找内核函数
   lookup_name(__arm64_sys_openat);
   lookup_name(__arm64_sys_read);
@@ -351,12 +359,7 @@ static long inline_hook_control0(const char *args, char *__user out_msg,
 }
 
 // 模块清理
-<<<<<<< HEAD
 static long inline_hook_exit(void *__user reserved) {
-=======
-static long inline_hook_cleanup(const char *args, const char *event,
-                                 void *__user reserved) {
->>>>>>> a0315555b4e084263358714ed623813de00d1939
   pr_info("cpuinfo_kirin9020: cleaning up...\n");
 
   unhook_func(__arm64_sys_openat);
@@ -373,8 +376,4 @@ static long inline_hook_cleanup(const char *args, const char *event,
 // 注册生命周期
 KPM_INIT(inline_hook_init);
 KPM_CTL0(inline_hook_control0);
-<<<<<<< HEAD
 KPM_EXIT(inline_hook_exit);
-=======
-KPM_EXIT(inline_hook_cleanup);
->>>>>>> a0315555b4e084263358714ed623813de00d1939

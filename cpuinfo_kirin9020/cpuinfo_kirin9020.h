@@ -121,14 +121,6 @@ struct cpuinfo_state {
 };
 
 // ============================================================
-<<<<<<< HEAD
-// kfunc_def 宏 (声明内核函数指针, 通过 kallsyms 动态解析)
-// ============================================================
-
-#define kfunc_def(ret, name, ...) \
-  ret (*name)(__VA_ARGS__) = NULL
-
-// ============================================================
 // lookup_name 宏 (通过 kallsyms 查找内核函数)
 // ============================================================
 
@@ -156,35 +148,6 @@ struct cpuinfo_state {
     pr_info("hook %s success\n", #func);                                  \
   }
 
-=======
-// lookup_name 宏 (通过 kallsyms 查找内核函数)
-// ============================================================
-
-#define lookup_name(func)                                  \
-  func = 0;                                                \
-  func = (typeof(func))kallsyms_lookup_name(#func);        \
-  pr_info("kernel function %s addr: %llx\n", #func, func); \
-  if (!func) {                                             \
-    return -21;                                            \
-  }
-
-// ============================================================
-// hook_func / unhook_func 宏 (与参考项目一致)
-// ============================================================
-
-#define hook_func(func, argv, before, after, udata)                       \
-  if (!func) {                                                            \
-    return -22;                                                           \
-  }                                                                       \
-  hook_err_t hook_err_##func = hook_wrap(func, argv, before, after, udata); \
-  if (hook_err_##func) {                                                  \
-    pr_err("hook %s error: %d\n", #func, hook_err_##func);                \
-    return -23;                                                           \
-  } else {                                                                \
-    pr_info("hook %s success\n", #func);                                  \
-  }
-
->>>>>>> a0315555b4e084263358714ed623813de00d1939
 #define unhook_func(func)           \
   if (func && !is_bad_address(func)) \
     unhook(func);
