@@ -4,11 +4,8 @@ name: Build KPM
 # GitHub Actions 工作流 - 自动编译 KPM 模块
 # ============================================================
 # 触发条件:
-#   1. push 到仓库时 (当 .c 文件或 workflow 文件被修改)
-#   2. 手动触发 (workflow_dispatch)
-#   3. 每天定时触发 (可选)
-#
-# 编译产物(.kpm 文件)可在 Actions 页面的 Artifacts 中下载
+#   1. push 到仓库时
+#   2. 手动触发 (workflow_dispatch)  ← 推荐
 # ============================================================
 
 on:
@@ -18,7 +15,6 @@ on:
       - "**.c"
       - "**.h"
 
-  # 手动触发 (推荐使用这种方式!)
   workflow_dispatch:
     inputs:
       release:
@@ -37,21 +33,33 @@ jobs:
       contents: write
     env:
       TZ: UTC-8
-      # 设置 NDK 路径, 供 Makefile 使用
       ANDROID_NDK_LATEST_HOME: /tmp/android-ndk
 
     outputs:
       kpm_list: ${{ steps.list-kpms.outputs.kpm_list }}
+      has_kpms: ${{ steps.list-kpms.outputs.has_kpms }}
 
     steps:
-      # 步骤1: 检出代码(含子模块)
+      # 步骤1: 检出代码
       - name: Checkout
         uses: actions/checkout@v6
         with:
           submodules: "recursive"
           fetch-depth: 1
 
-      # 步骤2: 下载 Android NDK (ARM64 交叉编译工具链)
+      # 步骤2: 验证 KernelPatch 子模块
+      - name: Verify KernelPatch submodule
+        run: |
+          if [ -d "KernelPatch" ] && [ -f "KernelPatch/kernel/hook.h" ]; then
+            echo "KernelPatch submodule found"
+            ls KernelPatch/kernel/hook.h
+          else
+            echo "ERROR: KernelPatch submodule not found!"
+            echo "Please run: git submodule add https://github.com/bmax121/KernelPatch.git KernelPatch"
+            exit 1
+          fi
+
+      # 步骤3: 下载 Android NDK
       - name: Setup Android NDK
         run: |
           NDK_VERSION="r27c"
@@ -59,55 +67,98 @@ jobs:
           NDK_URL="https://dl.google.com/android/repository/${NDK_ZIP}"
 
           echo "Downloading Android NDK ${NDK_VERSION}..."
-          wget -q ${NDK_URL} -O /tmp/${NDK_ZIP}
+          wget -q --show-progress ${NDK_URL} -O /tmp/${NDK_ZIP}
 
           echo "Extracting NDK..."
           unzip -q /tmp/${NDK_ZIP} -d /tmp/
           mv /tmp/android-ndk-${NDK_VERSION} /tmp/android-ndk
 
-          echo "NDK ready at /tmp/android-ndk"
-          ls /tmp/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android*-clang | head -3
+          echo "NDK ready"
+          ls /tmp/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang
 
-      # 步骤3: 安装依赖
+      # 步骤4: 安装依赖
       - name: Install dependencies
         run: |
           sudo apt update -y
-          sudo apt install llvm -y
+          sudo apt install llvm jq -y
 
-      # 步骤4: 编译所有 KPM 模块
+      # 步骤5: 编译所有 KPM 模块
       - name: Build KPM
         run: |
-          mkdir target
+          set -e  # 任何命令失败立即退出
 
-          # 遍历所有子目录, 对每个模块执行 make
-          for dir in $(ls -d */ | grep -v '^KernelPatch/$\|^target/$'); do
-            if [ ! -f ${dir}archive ]; then
-              echo "Building module: ${dir}"
-              make -C ${dir} || echo "Failed to build ${dir}, continuing..."
-              mv ${dir}*.kpm target 2>/dev/null || true
+          mkdir -p target
+
+          echo "=== Project structure ==="
+          ls -la
+          echo ""
+          echo "=== Looking for module directories ==="
+
+          for dir in */; do
+            # 跳过非模块目录
+            case "$dir" in
+              KernelPatch/|target/|.github/) continue ;;
+            esac
+
+            # 跳过没有 Makefile 的目录
+            if [ ! -f "${dir}Makefile" ]; then
+              echo "Skip (no Makefile): ${dir}"
+              continue
+            fi
+
+            echo ""
+            echo "=========================================="
+            echo "Building module: ${dir}"
+            echo "=========================================="
+
+            make -C "${dir}"
+
+            # 移动产物到 target
+            if ls ${dir}*.kpm 1>/dev/null 2>&1; then
+              mv ${dir}*.kpm target/
+              echo "Module ${dir} built successfully!"
+            else
+              echo "WARNING: No .kpm file generated for ${dir}"
             fi
           done
 
+          echo ""
           echo "=== Build Results ==="
-          ls -la target/ || echo "No KPM files generated"
+          if ls target/*.kpm 1>/dev/null 2>&1; then
+            ls -la target/
+            echo "Build successful!"
+          else
+            echo "ERROR: No KPM files were generated"
+            echo "Please check the build logs above for errors"
+            exit 1
+          fi
 
-      # 步骤5: 生成 KPM 列表
+      # 步骤6: 生成 KPM 列表
       - name: Generate KPM list
         id: list-kpms
         run: |
-          kpms=$(ls target/*.kpm | xargs -n1 basename | jq -R -s -c 'split("\n")[:-1]')
-          echo "kpm_list=${kpms}" >> "${GITHUB_OUTPUT}"
+          if ls target/*.kpm 1>/dev/null 2>&1; then
+            kpms=$(ls target/*.kpm | xargs -n1 basename | jq -R -s -c 'split("\n")[:-1]')
+            echo "kpm_list=${kpms}" >> "${GITHUB_OUTPUT}"
+            echo "has_kpms=true" >> "${GITHUB_OUTPUT}"
+            echo "Found KPMs: ${kpms}"
+          else
+            echo "kpm_list=[]" >> "${GITHUB_OUTPUT}"
+            echo "has_kpms=false" >> "${GITHUB_OUTPUT}"
+            echo "No KPM files found"
+          fi
 
-      # 步骤6: 上传所有 kpm 作为单个 Artifact
+      # 步骤7: 上传所有 kpm
       - name: Upload all KPMS
+        if: steps.list-kpms.outputs.has_kpms == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: all_kpms
           path: target
 
-      # 步骤7: 发布 Release (仅手动触发时)
+      # 步骤8: 发布 Release (仅手动触发时)
       - name: Upload release
-        if: github.event.inputs.release == 'true'
+        if: github.event.inputs.release == 'true' && steps.list-kpms.outputs.has_kpms == 'true'
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -120,9 +171,10 @@ jobs:
           omitBodyDuringUpdate: true
           replacesArtifacts: true
 
-  # 步骤8: 分别上传每个 kpm(方便单独下载)
+  # 步骤9: 分别上传每个 kpm (仅当有产物时)
   Upload-artifacts:
     needs: Build-on-Ubuntu
+    if: needs.Build-on-Ubuntu.outputs.has_kpms == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
