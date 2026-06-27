@@ -3,18 +3,10 @@
  * cpuinfo_kirin9020.h - 模块头文件
  *
  * 功能: 伪造 /proc/cpuinfo, 将 CPU 信息伪装为 HiSilicon Kirin 9020
- * 原理: Hook __arm64_sys_openat / __arm64_sys_read / __arm64_sys_close
- *       拦截对 /proc/cpuinfo 的读写, 返回伪造内容
+ * 原理: Hook syscall openat/read/close, 拦截对 /proc/cpuinfo 的读写, 返回伪造内容
  */
 #ifndef _CPUINFO_KIRIN9020_H
 #define _CPUINFO_KIRIN9020_H
-
-#include <linux/kernel.h>
-#include <linux/string.h>
-#include <linux/version.h>
-#include <linux/uaccess.h>
-#include <linux/printk.h>
-#include <linux/errno.h>
 
 // ============================================================
 // 常量
@@ -119,37 +111,5 @@ struct cpuinfo_state {
   int enabled;
   struct tracked_fd fds[MAX_TRACKED_FDS];
 };
-
-// ============================================================
-// lookup_name 宏 (通过 kallsyms 查找内核函数)
-// ============================================================
-
-#define lookup_name(func)                                  \
-  func = 0;                                                \
-  func = (typeof(func))kallsyms_lookup_name(#func);        \
-  pr_info("kernel function %s addr: %px\n", #func, func);  \
-  if (!func) {                                             \
-    return -21;                                            \
-  }
-
-// ============================================================
-// hook_func / unhook_func 宏 (与参考项目一致)
-// ============================================================
-
-#define hook_func(func, argv, before, after, udata)                       \
-  if (!func) {                                                            \
-    return -22;                                                           \
-  }                                                                       \
-  hook_err_t hook_err_##func = hook_wrap(func, argv, before, after, udata); \
-  if (hook_err_##func) {                                                  \
-    pr_err("hook %s error: %d\n", #func, hook_err_##func);                \
-    return -23;                                                           \
-  } else {                                                                \
-    pr_info("hook %s success\n", #func);                                  \
-  }
-
-#define unhook_func(func)           \
-  if (func && !is_bad_address(func)) \
-    unhook(func);
 
 #endif /* _CPUINFO_KIRIN9020_H */

@@ -6,34 +6,25 @@
  * 行为逻辑 (基于 IDA 逆向分析):
  * ============================================================
  *
- * 通过 hook ARM64 系统调用入口函数, 拦截进程对 /proc/cpuinfo
- * 的读取, 返回伪造的 CPU 信息 (HiSilicon Kirin 9020).
+ * 通过 hook_syscalln 拦截 openat(56) / read(63) / close(57) 系统调用,
+ * 对 /proc/cpuinfo 的读取返回伪造的 HiSilicon Kirin 9020 信息.
  *
  * 三个 hook 点:
- *   __arm64_sys_openat  → before_openat  + after_openat
- *   __arm64_sys_read    → before_read
- *   __arm64_sys_close   → before_close
+ *   __NR_openat (56)  → before_openat  + after_openat
+ *   __NR_read   (63)  → before_read
+ *   __NR_close  (57)  → before_close
  *
  * 数据流:
  *   1. openat("/proc/cpuinfo") → before_openat 检测文件名
- *      → 匹配则设置全局标记 pending_cpuinfo_open = 1
+ *      → 匹配则设置 args->local.data0 = 1 (标记)
  *   2. after_openat → 检查标记, 将 {task, fd, offset=0} 存入 tracked_fds[]
  *   3. read(fd, buf, n) → before_read 查找 tracked_fds
- *      → 用 copy_to_user 将 fake_cpuinfo 内容拷贝到用户空间
- *      → 更新 offset, 设置 args->ret, args->skip_origin = true
+ *      → 用 compat_copy_to_user 将 fake_cpuinfo 拷贝到用户空间
+ *      → 更新 offset, 设置 skip_origin = true
  *   4. close(fd) → before_close 清除 tracked_fds 中的条目
  *
- * 任务识别:
- *   通过读取 ARM64 SP_EL0 寄存器获取当前 task_struct 指针
- *
- * ============================================================
- * 与 IDA 伪代码的对应关系:
- *   hook_syscalln(56) → hook_wrap(__arm64_sys_openat, 4, ...)
- *   hook_syscalln(63) → hook_wrap(__arm64_sys_read, 3, ...)
- *   hook_syscalln(57) → hook_wrap(__arm64_sys_close, 1, ...)
- *   a1->__flag = 1     → pending_cpuinfo_open = 1 (全局变量)
- *   compat_copy_to_user → copy_to_user
- *   compat_strncpy_from_user → strncpy_from_user
+ * 关键: 必须使用 syscall_argn() 访问参数, 不能用 args->argN.
+ *       因为 CONFIG_HAVE_SYSCALL_WRAPPERS 内核中 arg0 是 pt_regs *.
  * ============================================================
  */
 
@@ -41,11 +32,14 @@
 #include <hook.h>
 #include <kpmodule.h>
 #include <kputils.h>
+#include <syscall.h>
 #include <linux/kernel.h>
 #include <linux/printk.h>
 #include <linux/string.h>
 #include <linux/version.h>
 #include <linux/errno.h>
+#include <uapi/asm-generic/unistd.h>
+#include <asm/current.h>
 
 #include "cpuinfo_kirin9020.h"
 
@@ -69,34 +63,13 @@ KPM_DESCRIPTION("Fake /proc/cpuinfo as HiSilicon Kirin 9020");
 
 static struct cpuinfo_state g_state;
 
-// 在 before_openat 和 after_openat 之间传递状态
-// before_openat 检测到 /proc/cpuinfo 时设为 1
-// after_openat 检查后清零
-static int pending_cpuinfo_open = 0;
-
 // 伪造的 cpuinfo 内容
 static const char fake_cpuinfo[] = FAKE_CPUINFO_CONTENT;
 #define FAKE_CPUINFO_SIZE (sizeof(fake_cpuinfo) - 1)
 
 // ============================================================
-// 被 hook 的内核函数指针
-// ============================================================
-
-static long (*__arm64_sys_openat)(int dfd, const char __user *filename,
-                                   int flags, umode_t mode);
-static long (*__arm64_sys_read)(unsigned int fd, char __user *buf, size_t count);
-static long (*__arm64_sys_close)(unsigned int fd);
-
-// ============================================================
 // 工具函数
 // ============================================================
-
-// 获取当前 task_struct (ARM64: 读 SP_EL0)
-static inline struct task_struct *get_current_task(void) {
-  unsigned long sp_el0;
-  asm volatile("mrs %0, sp_el0" : "=r"(sp_el0));
-  return (struct task_struct *)sp_el0;
-}
 
 // 在追踪表中查找条目
 static int find_tracked_fd(struct task_struct *task, int fd) {
@@ -164,18 +137,19 @@ static bool is_cpuinfo_path(const char *filename, int len) {
 }
 
 // ============================================================
-// Hook 回调: __arm64_sys_openat
+// Hook 回调: __NR_openat (56)
 // ============================================================
 
-// 回调签名: void callback(hook_fargsN_t *args, void *udata)
-// __arm64_sys_openat 有 4 个参数: dfd, filename, flags, mode
-// args->arg0 = dfd, args->arg1 = filename, args->arg2 = flags, args->arg3 = mode
+// 回调签名: void callback(hook_fargs4_t *args, void *udata)
+// openat 参数: dfd, filename, flags, mode
 
 static void before_openat(hook_fargs4_t *args, void *udata) {
   if (!g_state.enabled) return;
 
-  // 从用户空间读取文件名
-  const char __user *filename = (const char __user *)args->arg1;
+  // 使用 syscall_argn 访问参数 (兼容 CONFIG_HAVE_SYSCALL_WRAPPERS)
+  const char __user *filename = (const char __user *)syscall_argn(args, 1);
+  if (!filename) return;
+
   char buf[128] = {0};
   long ret = compat_strncpy_from_user(buf, filename, sizeof(buf) - 1);
   if (ret <= 0) return;
@@ -183,7 +157,8 @@ static void before_openat(hook_fargs4_t *args, void *udata) {
   buf[127] = '\0';
 
   if (is_cpuinfo_path(buf, (int)ret)) {
-    pending_cpuinfo_open = 1;
+    // 用 local.data0 标记, 在 after 回调中识别
+    args->local.data0 = 1;
     pr_info("cpuinfo: intercepted openat(/proc/cpuinfo)\n");
   }
 }
@@ -191,14 +166,14 @@ static void before_openat(hook_fargs4_t *args, void *udata) {
 // openat 的 after 回调: 在原始函数返回后, 将 fd 加入追踪表
 static void after_openat(hook_fargs4_t *args, void *udata) {
   if (!g_state.enabled) return;
-  if (!pending_cpuinfo_open) return;
-  pending_cpuinfo_open = 0;
+  if (!args->local.data0) return;
+  args->local.data0 = 0;
 
   // args->ret 是原始 openat 的返回值 (即 fd)
-  long fd = args->ret;
+  long fd = (long)args->ret;
   if (fd < 0) return;
 
-  struct task_struct *task = get_current_task();
+  struct task_struct *task = get_current();
   if (!task) return;
 
   int idx = add_tracked_fd(task, (int)fd);
@@ -208,17 +183,16 @@ static void after_openat(hook_fargs4_t *args, void *udata) {
 }
 
 // ============================================================
-// Hook 回调: __arm64_sys_read
+// Hook 回调: __NR_read (63)
 // ============================================================
 
-// __arm64_sys_read 有 3 个参数: fd, buf, count
-// args->arg0 = fd, args->arg1 = buf, args->arg2 = count
+// read 参数: fd, buf, count
 
 static void before_read(hook_fargs3_t *args, void *udata) {
   if (!g_state.enabled) return;
 
-  unsigned int fd = (unsigned int)args->arg0;
-  struct task_struct *task = get_current_task();
+  unsigned int fd = (unsigned int)syscall_argn(args, 0);
+  struct task_struct *task = get_current();
   if (!task) return;
 
   int idx = find_tracked_fd(task, (int)fd);
@@ -235,7 +209,7 @@ static void before_read(hook_fargs3_t *args, void *udata) {
   }
 
   // 计算本次读取量
-  size_t count = (size_t)args->arg2;
+  size_t count = (size_t)syscall_argn(args, 2);
   size_t remaining = FAKE_CPUINFO_SIZE - offset;
   size_t to_copy = (count < remaining) ? count : remaining;
 
@@ -246,7 +220,7 @@ static void before_read(hook_fargs3_t *args, void *udata) {
   }
 
   // 将伪造数据拷贝到用户空间
-  char __user *buf = (char __user *)args->arg1;
+  char __user *buf = (char __user *)syscall_argn(args, 1);
   long copied = compat_copy_to_user(buf, fake_cpuinfo + offset, to_copy);
   if (copied != 0) {
     args->ret = -EFAULT;
@@ -265,17 +239,16 @@ static void before_read(hook_fargs3_t *args, void *udata) {
 }
 
 // ============================================================
-// Hook 回调: __arm64_sys_close
+// Hook 回调: __NR_close (57)
 // ============================================================
 
-// __arm64_sys_close 有 1 个参数: fd
-// args->arg0 = fd
+// close 参数: fd
 
 static void before_close(hook_fargs1_t *args, void *udata) {
   if (!g_state.enabled) return;
 
-  unsigned int fd = (unsigned int)args->arg0;
-  struct task_struct *task = get_current_task();
+  unsigned int fd = (unsigned int)syscall_argn(args, 0);
+  struct task_struct *task = get_current();
   if (!task) return;
 
   int idx = find_tracked_fd(task, (int)fd);
@@ -296,26 +269,39 @@ static long inline_hook_init(const char *args, const char *event,
   // 初始化全局状态
   memset(&g_state, 0, sizeof(g_state));
   g_state.enabled = 1;
-  pending_cpuinfo_open = 0;
 
-  // 查找内核函数
-  lookup_name(__arm64_sys_openat);
-  lookup_name(__arm64_sys_read);
-  lookup_name(__arm64_sys_close);
+  // 安装 hook (按系统调用号, 自动选择 inline/fp 策略)
+  hook_err_t err;
 
-  // 安装 hook
-  hook_func(__arm64_sys_openat, 4, before_openat, after_openat, NULL);
-  hook_func(__arm64_sys_read, 3, before_read, NULL, NULL);
-  hook_func(__arm64_sys_close, 1, before_close, NULL, NULL);
+  err = hook_syscalln(__NR_openat, 4, before_openat, after_openat, NULL);
+  if (err) {
+    pr_err("cpuinfo: hook openat failed: %d\n", err);
+    return -1;
+  }
+  pr_info("cpuinfo: hook openat success\n");
+
+  err = hook_syscalln(__NR_read, 3, before_read, NULL, NULL);
+  if (err) {
+    pr_err("cpuinfo: hook read failed: %d\n", err);
+    unhook_syscalln(__NR_openat, before_openat, after_openat);
+    return -1;
+  }
+  pr_info("cpuinfo: hook read success\n");
+
+  err = hook_syscalln(__NR_close, 1, before_close, NULL, NULL);
+  if (err) {
+    pr_err("cpuinfo: hook close failed: %d\n", err);
+    unhook_syscalln(__NR_openat, before_openat, after_openat);
+    unhook_syscalln(__NR_read, before_read, NULL);
+    return -1;
+  }
+  pr_info("cpuinfo: hook close success\n");
 
   pr_info("cpuinfo_kirin9020: init complete! fake CPU: HiSilicon Kirin 9020\n");
   return 0;
 }
 
 // 运行时控制
-// 用法: kpatch $SUPERKEY kpm ctl0 cpuinfo_kirin9020 "status"
-//       kpatch $SUPERKEY kpm ctl0 cpuinfo_kirin9020 "enable"
-//       kpatch $SUPERKEY kpm ctl0 cpuinfo_kirin9020 "disable"
 static long inline_hook_control0(const char *args, char *__user out_msg,
                                   int out_msg_len) {
   if (!args) return -1;
@@ -343,12 +329,11 @@ static long inline_hook_control0(const char *args, char *__user out_msg,
 static long inline_hook_exit(void *__user reserved) {
   pr_info("cpuinfo_kirin9020: cleaning up...\n");
 
-  unhook_func(__arm64_sys_openat);
-  unhook_func(__arm64_sys_read);
-  unhook_func(__arm64_sys_close);
+  unhook_syscalln(__NR_openat, before_openat, after_openat);
+  unhook_syscalln(__NR_read, before_read, NULL);
+  unhook_syscalln(__NR_close, before_close, NULL);
 
   memset(&g_state, 0, sizeof(g_state));
-  pending_cpuinfo_open = 0;
 
   pr_info("cpuinfo_kirin9020: cleanup complete!\n");
   return 0;
