@@ -3,7 +3,8 @@
  * cpuinfo_kirin9020.h - 模块头文件
  *
  * 功能: 伪造 /proc/cpuinfo, 将 CPU 信息伪装为 HiSilicon Kirin 9020
- * 原理: Hook openat/read/close 三个系统调用, 拦截对 /proc/cpuinfo 的读写
+ * 原理: Hook __arm64_sys_openat / __arm64_sys_read / __arm64_sys_close
+ *       拦截对 /proc/cpuinfo 的读写, 返回伪造内容
  */
 #ifndef _CPUINFO_KIRIN9020_H
 #define _CPUINFO_KIRIN9020_H
@@ -12,27 +13,23 @@
 #include <linux/string.h>
 #include <linux/version.h>
 #include <linux/uaccess.h>
+#include <linux/printk.h>
+#include <linux/errno.h>
 
 // ============================================================
-// 常量定义
+// 常量
 // ============================================================
 
-// 最大追踪的文件描述符数量
-#define MAX_TRACKED_FDS 64
-
-// 要伪装的目标文件路径
-#define TARGET_FILE_FULL "/proc/cpuinfo"
-#define TARGET_FILE_NAME "cpuinfo"
+#define MAX_TRACKED_FDS      64
+#define TARGET_FILE_FULL     "/proc/cpuinfo"
+#define TARGET_FILE_NAME     "cpuinfo"
 #define TARGET_FILE_FULL_LEN 13
 #define TARGET_FILE_NAME_LEN 7
 
-// ARM64 系统调用号
-#define __NR_openat 56
-#define __NR_close  57
-#define __NR_read   63
-
+// ============================================================
 // 伪造的 /proc/cpuinfo 内容
-// 显示为 HiSilicon Kirin 9020, 8核 (1+3+4 三丛集架构)
+// ============================================================
+
 #define FAKE_CPUINFO_CONTENT \
   "Processor\t: AArch64 Processor rev 0 (aarch64)\n" \
   "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp\n" \
@@ -112,34 +109,47 @@
 // 数据结构
 // ============================================================
 
-// 追踪的 fd 条目
-// 每个条目追踪一个被打开的 /proc/cpuinfo 文件描述符
 struct tracked_fd {
-  void *task;           // 打开该 fd 的 task_struct 指针
-  int fd;               // 文件描述符编号
-  unsigned long offset; // 当前读取偏移量
+  void *task;
+  int fd;
+  unsigned long offset;
 };
 
-// 全局状态
 struct cpuinfo_state {
-  int enabled;                          // 模块是否启用
-  struct tracked_fd fds[MAX_TRACKED_FDS]; // fd 追踪表
+  int enabled;
+  struct tracked_fd fds[MAX_TRACKED_FDS];
 };
 
 // ============================================================
-// 函数声明
+// lookup_name 宏 (通过 kallsyms 查找内核函数)
 // ============================================================
 
-// 获取当前 task_struct 指针
-static inline struct task_struct *get_current_task(void);
+#define lookup_name(func)                                  \
+  func = 0;                                                \
+  func = (typeof(func))kallsyms_lookup_name(#func);        \
+  pr_info("kernel function %s addr: %llx\n", #func, func); \
+  if (!func) {                                             \
+    return -21;                                            \
+  }
 
-// 在追踪表中查找条目
-static int find_tracked_fd(struct task_struct *task, int fd);
+// ============================================================
+// hook_func / unhook_func 宏 (与参考项目一致)
+// ============================================================
 
-// 添加追踪条目
-static int add_tracked_fd(struct task_struct *task, int fd);
+#define hook_func(func, argv, before, after, udata)                       \
+  if (!func) {                                                            \
+    return -22;                                                           \
+  }                                                                       \
+  hook_err_t hook_err_##func = hook_wrap(func, argv, before, after, udata); \
+  if (hook_err_##func) {                                                  \
+    pr_err("hook %s error: %d\n", #func, hook_err_##func);                \
+    return -23;                                                           \
+  } else {                                                                \
+    pr_info("hook %s success\n", #func);                                  \
+  }
 
-// 移除追踪条目
-static void remove_tracked_fd(struct task_struct *task, int fd);
+#define unhook_func(func)           \
+  if (func && !is_bad_address(func)) \
+    unhook(func);
 
 #endif /* _CPUINFO_KIRIN9020_H */
