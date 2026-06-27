@@ -44,19 +44,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          submodules: "recursive"
           fetch-depth: 1
 
-      # 步骤2: 验证 KernelPatch 子模块
-      - name: Verify KernelPatch submodule
+      # 步骤2: 初始化 KernelPatch 子模块
+      - name: Init KernelPatch submodule
         run: |
+          echo "=== .gitmodules ==="
+          cat .gitmodules || echo ".gitmodules not found"
+
+          echo "=== git submodule status ==="
+          git submodule status || echo "no submodules"
+
+          echo "=== git submodule update ==="
+          git submodule update --init --recursive
+
+          echo "=== Verify ==="
           if [ -d "KernelPatch" ] && [ -f "KernelPatch/kernel/hook.h" ]; then
-            echo "KernelPatch submodule found"
+            echo "KernelPatch submodule OK"
             ls KernelPatch/kernel/hook.h
           else
-            echo "ERROR: KernelPatch submodule not found!"
-            echo "Please run: git submodule add https://github.com/bmax121/KernelPatch.git KernelPatch"
-            exit 1
+            echo "KernelPatch submodule still missing, cloning manually..."
+            git clone --depth=1 https://github.com/bmax121/KernelPatch.git KernelPatch
+            ls KernelPatch/kernel/hook.h
           fi
 
       # 步骤3: 下载 Android NDK
