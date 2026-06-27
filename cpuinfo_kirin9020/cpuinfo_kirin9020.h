@@ -4,81 +4,90 @@
 
 #define MAX_TRACKED_FDS      64
 
-#define FAKE_CPUINFO_SIZE    0x5EB
+#define FAKE_CPUINFO_SIZE    0xCA7
 
 #define FAKE_CPUINFO_CONTENT \
-  "Processor       : AArch64 Processor rev 0 (aarch64)\n" \
-  "Features        : fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp\n" \
-  "CPU implementer : 0x48\n" \
+  "Processor\t: AArch64 Processor rev 0 (aarch64)\n" \
+  "processor\t: 0\n" \
+  "BogoMIPS\t: 2000.00\n" \
+  "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs sb paca pacg dcpodp flagm2 frint svei8mm svebf16 i8mm bf16 dgh bti\n" \
+  "CPU implementer\t: 0x48\n" \
   "CPU architecture: 8\n" \
-  "CPU variant     : 0x1\n" \
-  "CPU part        : 0xd0c\n" \
-  "CPU revision    : 0\n" \
+  "CPU variant\t: 0x2\n" \
+  "CPU part\t: 0xd24\n" \
+  "CPU revision\t: 0\n" \
+  "CPU physical\t: 0\n" \
   "\n" \
-  "processor       : 0\n" \
-  "BogoMIPS        : 26.00\n" \
-  "CPU implementer : 0x48\n" \
+  "processor\t: 1\n" \
+  "BogoMIPS\t: 2000.00\n" \
+  "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs sb paca pacg dcpodp flagm2 frint svei8mm svebf16 i8mm bf16 dgh bti\n" \
+  "CPU implementer\t: 0x48\n" \
   "CPU architecture: 8\n" \
-  "CPU variant     : 0x1\n" \
-  "CPU part        : 0xd0c\n" \
-  "CPU revision    : 0\n" \
+  "CPU variant\t: 0x2\n" \
+  "CPU part\t: 0xd24\n" \
+  "CPU revision\t: 0\n" \
+  "CPU physical\t: 1\n" \
   "\n" \
-  "processor       : 1\n" \
-  "BogoMIPS        : 26.00\n" \
-  "CPU implementer : 0x48\n" \
+  "processor\t: 2\n" \
+  "BogoMIPS\t: 2000.00\n" \
+  "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs sb paca pacg dcpodp flagm2 frint svei8mm svebf16 i8mm bf16 dgh bti\n" \
+  "CPU implementer\t: 0x48\n" \
   "CPU architecture: 8\n" \
-  "CPU variant     : 0x2\n" \
-  "CPU part        : 0xd0a\n" \
-  "CPU revision    : 0\n" \
+  "CPU variant\t: 0x2\n" \
+  "CPU part\t: 0xd24\n" \
+  "CPU revision\t: 0\n" \
+  "CPU physical\t: 2\n" \
   "\n" \
-  "processor       : 2\n" \
-  "BogoMIPS        : 26.00\n" \
-  "CPU implementer : 0x48\n" \
+  "processor\t: 3\n" \
+  "BogoMIPS\t: 2000.00\n" \
+  "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs sb paca pacg dcpodp flagm2 frint svei8mm svebf16 i8mm bf16 dgh bti\n" \
+  "CPU implementer\t: 0x48\n" \
   "CPU architecture: 8\n" \
-  "CPU variant     : 0x2\n" \
-  "CPU part        : 0xd0a\n" \
-  "CPU revision    : 0\n" \
+  "CPU variant\t: 0x2\n" \
+  "CPU part\t: 0xd24\n" \
+  "CPU revision\t: 0\n" \
+  "CPU physical\t: 3\n" \
   "\n" \
-  "processor       : 3\n" \
-  "BogoMIPS        : 26.00\n" \
-  "CPU implementer : 0x48\n" \
+  "processor\t: 4\n" \
+  "BogoMIPS\t: 2000.00\n" \
+  "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs sb paca pacg dcpodp flagm2 frint svei8mm svebf16 i8mm bf16 dgh bti\n" \
+  "CPU implementer\t: 0x48\n" \
   "CPU architecture: 8\n" \
-  "CPU variant     : 0x2\n" \
-  "CPU part        : 0xd0a\n" \
-  "CPU revision    : 0\n" \
+  "CPU variant\t: 0x2\n" \
+  "CPU part\t: 0xd47\n" \
+  "CPU revision\t: 0\n" \
+  "CPU physical\t: 4\n" \
   "\n" \
-  "processor       : 4\n" \
-  "BogoMIPS        : 26.00\n" \
-  "CPU implementer : 0x48\n" \
+  "processor\t: 5\n" \
+  "BogoMIPS\t: 2000.00\n" \
+  "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs sb paca pacg dcpodp flagm2 frint svei8mm svebf16 i8mm bf16 dgh bti\n" \
+  "CPU implementer\t: 0x48\n" \
   "CPU architecture: 8\n" \
-  "CPU variant     : 0x3\n" \
-  "CPU part        : 0xd0b\n" \
-  "CPU revision    : 0\n" \
+  "CPU variant\t: 0x2\n" \
+  "CPU part\t: 0xd47\n" \
+  "CPU revision\t: 0\n" \
+  "CPU physical\t: 5\n" \
   "\n" \
-  "processor       : 5\n" \
-  "BogoMIPS        : 26.00\n" \
-  "CPU implementer : 0x48\n" \
+  "processor\t: 6\n" \
+  "BogoMIPS\t: 2000.00\n" \
+  "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs sb paca pacg dcpodp flagm2 frint svei8mm svebf16 i8mm bf16 dgh bti\n" \
+  "CPU implementer\t: 0x48\n" \
   "CPU architecture: 8\n" \
-  "CPU variant     : 0x3\n" \
-  "CPU part        : 0xd0b\n" \
-  "CPU revision    : 0\n" \
+  "CPU variant\t: 0x2\n" \
+  "CPU part\t: 0xd47\n" \
+  "CPU revision\t: 0\n" \
+  "CPU physical\t: 6\n" \
   "\n" \
-  "processor       : 6\n" \
-  "BogoMIPS        : 26.00\n" \
-  "CPU implementer : 0x48\n" \
+  "processor\t: 7\n" \
+  "BogoMIPS\t: 2000.00\n" \
+  "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs sb paca pacg dcpodp flagm2 frint svei8mm svebf16 i8mm bf16 dgh bti\n" \
+  "CPU implementer\t: 0x48\n" \
   "CPU architecture: 8\n" \
-  "CPU variant     : 0x3\n" \
-  "CPU part        : 0xd0b\n" \
-  "CPU revision    : 0\n" \
+  "CPU variant\t: 0x2\n" \
+  "CPU part\t: 0xd06\n" \
+  "CPU revision\t: 0\n" \
+  "CPU physical\t: 7\n" \
   "\n" \
-  "processor       : 7\n" \
-  "BogoMIPS        : 26.00\n" \
-  "CPU implementer : 0x48\n" \
-  "CPU architecture: 8\n" \
-  "CPU variant     : 0x3\n" \
-  "CPU part        : 0xd0b\n" \
-  "CPU revision    : 0\n" \
-  "\n" \
-  "Hardware        : HiSilicon Kirin 9020\n"
+  "Hardware\t: HUAWEI Kirin9030\n"
 
 #endif /* _CPUINFO_KIRIN9020_H */
