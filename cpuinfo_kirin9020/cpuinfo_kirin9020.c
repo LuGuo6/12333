@@ -54,17 +54,6 @@
 #endif
 
 // ============================================================
-// 内核函数指针 (通过 kallsyms 动态解析, 避免依赖内核头文件)
-// ============================================================
-
-static long (*strncpy_from_user_fn)(char *dst, const char __user *src, long count) = NULL;
-static unsigned long (*copy_to_user_fn)(void __user *to, const void *from, unsigned long n) = NULL;
-
-// 用宏封装, 在代码中直接使用标准函数名
-#define strncpy_from_user(dst, src, count) strncpy_from_user_fn(dst, src, count)
-#define copy_to_user(to, from, n)          copy_to_user_fn(to, from, n)
-
-// ============================================================
 // 模块元信息
 // ============================================================
 
@@ -188,7 +177,7 @@ static void before_openat(hook_fargs4_t *args, void *udata) {
   // 从用户空间读取文件名
   const char __user *filename = (const char __user *)args->arg1;
   char buf[128] = {0};
-  long ret = strncpy_from_user(buf, filename, sizeof(buf) - 1);
+  long ret = compat_strncpy_from_user(buf, filename, sizeof(buf) - 1);
   if (ret <= 0) return;
 
   buf[127] = '\0';
@@ -258,7 +247,7 @@ static void before_read(hook_fargs3_t *args, void *udata) {
 
   // 将伪造数据拷贝到用户空间
   char __user *buf = (char __user *)args->arg1;
-  long copied = copy_to_user(buf, fake_cpuinfo + offset, to_copy);
+  long copied = compat_copy_to_user(buf, fake_cpuinfo + offset, to_copy);
   if (copied != 0) {
     args->ret = -EFAULT;
     args->skip_origin = true;
@@ -309,14 +298,6 @@ static long inline_hook_init(const char *args, const char *event,
   g_state.enabled = 1;
   pending_cpuinfo_open = 0;
 
-  // 动态解析内核函数 (避免依赖内核头文件)
-  strncpy_from_user_fn = (typeof(strncpy_from_user_fn))
-      kallsyms_lookup_name("strncpy_from_user");
-  copy_to_user_fn = (typeof(copy_to_user_fn))
-      kallsyms_lookup_name("copy_to_user");
-  pr_info("strncpy_from_user=%px copy_to_user=%px\n",
-          strncpy_from_user_fn, copy_to_user_fn);
-
   // 查找内核函数
   lookup_name(__arm64_sys_openat);
   lookup_name(__arm64_sys_read);
@@ -344,7 +325,7 @@ static long inline_hook_control0(const char *args, char *__user out_msg,
     if (out_msg && out_msg_len > 0) {
       long len = strlen(msg);
       if (len > out_msg_len) len = out_msg_len;
-      copy_to_user(out_msg, msg, len);
+      compat_copy_to_user(out_msg, msg, len);
     }
     pr_info("cpuinfo: module is %s\n", msg);
   } else if (strcmp(args, "enable") == 0) {

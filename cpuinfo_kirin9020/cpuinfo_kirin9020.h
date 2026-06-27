@@ -127,7 +127,7 @@ struct cpuinfo_state {
 #define lookup_name(func)                                  \
   func = 0;                                                \
   func = (typeof(func))kallsyms_lookup_name(#func);        \
-  pr_info("kernel function %s addr: %llx\n", #func, func); \
+  pr_info("kernel function %s addr: %px\n", #func, func);  \
   if (!func) {                                             \
     return -21;                                            \
   }
