@@ -56,17 +56,20 @@ jobs:
           git submodule status || echo "no submodules"
 
           echo "=== git submodule update ==="
-          git submodule update --init --recursive
-
-          echo "=== Verify ==="
-          if [ -d "KernelPatch" ] && [ -f "KernelPatch/kernel/hook.h" ]; then
-            echo "KernelPatch submodule OK"
-            ls KernelPatch/kernel/hook.h
-          else
-            echo "KernelPatch submodule still missing, cloning manually..."
+          git submodule update --init --recursive 2>&1 || {
+            echo "submodule update failed, cloning manually..."
+            rm -rf KernelPatch
             git clone --depth=1 https://github.com/bmax121/KernelPatch.git KernelPatch
-            ls KernelPatch/kernel/hook.h
-          fi
+          }
+
+          echo "=== Verify KernelPatch ==="
+          ls -la KernelPatch/
+          echo "---"
+          ls -la KernelPatch/kernel/ 2>/dev/null || echo "no kernel/ dir"
+          echo "---"
+          find KernelPatch -name "hook.h" -type f 2>/dev/null || echo "hook.h not found"
+
+          echo "=== KernelPatch OK ==="
 
       # 步骤3: 下载 Android NDK
       - name: Setup Android NDK
