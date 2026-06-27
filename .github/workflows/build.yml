@@ -109,7 +109,7 @@ jobs:
           for dir in */; do
             # 跳过非模块目录
             case "$dir" in
-              KernelPatch/|target/|.github/) continue ;;
+              KernelPatch/|target/|.github/|my_kpm/) continue ;;
             esac
 
             # 跳过没有 Makefile 的目录
