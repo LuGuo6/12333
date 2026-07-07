@@ -22,41 +22,9 @@ KPM_NAME("xuanjie_o1");
 KPM_VERSION(XUANJIE_VERSION);
 KPM_LICENSE("GPL v2");
 KPM_AUTHOR("");
-KPM_DESCRIPTION("Xiaomi XuanJie O1 faker (CPU + GPU + Kernel)");
+KPM_DESCRIPTION("Xiaomi XuanJie O1 faker (CPU + GPU)");
 
 static int module_enabled;
-
-// ============================================================
-// 路径匹配表 — CPU / GPU / 内核版本
-// ============================================================
-
-static const struct path_entry all_paths[] = {
-    // /proc/cpuinfo — CPU 信息
-    { "/proc/cpuinfo",
-      sizeof("/proc/cpuinfo") - 1,
-      FAKE_CPUINFO_CONTENT, FAKE_CPUINFO_SIZE },
-
-    // /proc/version — 内核版本
-    { "/proc/version",
-      sizeof("/proc/version") - 1,
-      FAKE_PROC_VERSION, FAKE_PROC_VERSION_SIZE },
-
-    // ARM Mali GPU — Immortalis-G925
-    { "/sys/class/misc/mali0/device/gpuinfo",
-      sizeof("/sys/class/misc/mali0/device/gpuinfo") - 1,
-      FAKE_GPU_INFO, FAKE_GPU_INFO_SIZE },
-    { "/sys/class/misc/mali0/device/gpu_model",
-      sizeof("/sys/class/misc/mali0/device/gpu_model") - 1,
-      FAKE_GPU_INFO, FAKE_GPU_INFO_SIZE },
-    { "/sys/class/misc/mali/device/gpuinfo",
-      sizeof("/sys/class/misc/mali/device/gpuinfo") - 1,
-      FAKE_GPU_INFO, FAKE_GPU_INFO_SIZE },
-    { "/sys/class/misc/mali/device/gpu_model",
-      sizeof("/sys/class/misc/mali/device/gpu_model") - 1,
-      FAKE_GPU_INFO, FAKE_GPU_INFO_SIZE },
-
-    { NULL, 0, NULL, 0 }
-};
 
 // ============================================================
 // tracked fd 管理
@@ -73,19 +41,85 @@ struct tracked_fd {
 static struct tracked_fd tracked_fds[MAX_TRACKED_FDS];
 
 // ============================================================
-// 路径匹配
+// GPU 路径匹配 — 关键词匹配，兼容所有设备
+//
+// 不同 Android 系统（小米/一加/OPPO/vivo/三星...）的 GPU sysfs
+// 路径不同，但文件名有共性：
+//   - gpuinfo        (Mali 标准)
+//   - gpu_model      (Mali/Adreno 通用)
+//   - gpu_id         (Adreno)
+//   - product_id     (部分 Adreno)
+//
+// 匹配策略：路径中包含上述关键词之一即视为 GPU 信息文件。
 // ============================================================
 
-static const struct path_entry *find_path(const char *buf, int buf_len)
+// 判断路径是否为 GPU 信息文件
+static int is_gpu_info_path(const char *path, int len)
 {
-    const struct path_entry *entry;
+    int i;
 
-    for (entry = all_paths; entry->path != NULL; entry++) {
-        if (buf_len >= entry->path_len &&
-            strncmp(buf, entry->path, entry->path_len) == 0) {
-            return entry;
-        }
+    if (len < 7)
+        return 0;
+
+    // 从路径末尾向前扫描，找最后一个 '/'
+    for (i = len - 1; i >= 0; i--) {
+        if (path[i] == '/')
+            break;
     }
+    // filename = path + i + 1
+    path = path + i + 1;
+
+    // 匹配 gpuinfo
+    if (strncmp(path, "gpuinfo", 7) == 0)
+        return 1;
+
+    // 匹配 gpu_model (结尾)
+    if (len - i - 1 >= 9 && strncmp(path, "gpu_model", 9) == 0)
+        return 1;
+
+    // 匹配 gpu_id (结尾)
+    if (len - i - 1 >= 6 && strncmp(path, "gpu_id", 6) == 0)
+        return 1;
+
+    // 匹配 product_id (部分 Adreno 使用)
+    if (len - i - 1 >= 10 && strncmp(path, "product_id", 10) == 0)
+        return 1;
+
+    return 0;
+}
+
+// ============================================================
+// CPU 路径精确匹配
+// ============================================================
+
+static int is_cpuinfo_path(const char *path, int len)
+{
+    // 精确匹配 /proc/cpuinfo
+    if (len == 14 && strncmp(path, "/proc/cpuinfo", 14) == 0)
+        return 1;
+    // 也匹配相对路径 "cpuinfo" (部分应用)
+    if (len == 7 && strncmp(path, "cpuinfo", 7) == 0)
+        return 1;
+    return 0;
+}
+
+// ============================================================
+// 路径分发 — 根据匹配结果返回对应的伪造数据
+// ============================================================
+
+static const char *match_fake_data(const char *path, int path_len, int *out_size)
+{
+    if (is_cpuinfo_path(path, path_len)) {
+        *out_size = FAKE_CPUINFO_SIZE;
+        return FAKE_CPUINFO_CONTENT;
+    }
+
+    if (is_gpu_info_path(path, path_len)) {
+        *out_size = FAKE_GPU_INFO_SIZE;
+        return FAKE_GPU_INFO;
+    }
+
+    *out_size = 0;
     return NULL;
 }
 
@@ -98,7 +132,8 @@ static void before_openat(hook_fargs4_t *args, void *udata)
     char buf[MAX_PATH_LEN];
     const char *filename;
     long ret;
-    const struct path_entry *entry;
+    const char *fake;
+    int fake_size;
 
     filename = (const char *)syscall_argn(args, 1);
     args->local.data0 = 0;
@@ -112,11 +147,11 @@ static void before_openat(hook_fargs4_t *args, void *udata)
     if (!buf[0])
         return;
 
-    entry = find_path(buf, (int)ret);
-    if (entry && module_enabled) {
+    fake = match_fake_data(buf, (int)ret, &fake_size);
+    if (fake && module_enabled) {
         args->local.data0 = 1;
-        args->local.data1 = (long)entry->fake_data;
-        args->local.data2 = entry->fake_size;
+        args->local.data1 = (long)fake;
+        args->local.data2 = fake_size;
     }
 }
 
@@ -229,25 +264,6 @@ static void before_close(hook_fargs1_t *args, void *udata)
 }
 
 // ============================================================
-// uname hook — 伪造内核版本
-// ============================================================
-
-// struct utsname: [0]sysname [65]nodename [130]release [195]version [260]machine [325]domainname
-#define UTSNAME_RELEASE_OFFSET  130
-
-static void after_uname(hook_fargs1_t *args, void *udata)
-{
-    char __user *buf;
-
-    if (!module_enabled)
-        return;
-
-    buf = (char __user *)syscall_argn(args, 0);
-    compat_copy_to_user(buf + UTSNAME_RELEASE_OFFSET,
-                        FAKE_KERNEL_VERSION, FAKE_KERNEL_VERSION_LEN);
-}
-
-// ============================================================
 // KPM 生命周期函数
 // ============================================================
 
@@ -271,10 +287,6 @@ static long xuanjie_init(const char *args, const char *event, void *__user reser
     if (err)
         printk("\0013xuanjie_o1 hook close error: %d\n", err);
 
-    err = hook_syscalln(__NR_uname, 1, 0, after_uname, 0);
-    if (err)
-        printk("\0013xuanjie_o1 hook uname error: %d\n", err);
-
     printk("\0016xuanjie_o1 init complete\n");
 
     return 0;
@@ -285,7 +297,6 @@ static long xuanjie_exit(void *__user reserved)
     unhook_syscalln(__NR_openat, before_openat, after_openat);
     unhook_syscalln(__NR_read, before_read, 0);
     unhook_syscalln(__NR_close, before_close, 0);
-    unhook_syscalln(__NR_uname, 0, after_uname);
 
     printk("\0016xuanjie_o1 exit\n");
 

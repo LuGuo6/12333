@@ -52,6 +52,7 @@ Key Makefile variables: `KP_DIR`, `ANDROID_NDK_LATEST_HOME`, `CFLAGS` (includes 
 - `cpuinfo_kirin9020/cpuinfo_kirin9020.h` — fake cpuinfo content for Kirin 9030
 - `cpuinfo_xuanjie_o1/cpuinfo_xuanjie_o1.h` — fake cpuinfo content for Xiaomi XuanJie O1
 - `gpuinfo/gpuinfo.h` — fake GPU sysfs content for Adreno (骁龙) + Mali (天玑)
+- `xuanjie_o1/xuanjie_o1.h` — unified faker: XuanJie O1 CPU + Immortalis-G925 GPU
 
 KernelPatch headers live in `KernelPatch/kernel/` under `include/`, `patch/include/`, `linux/include/`, `linux/arch/arm64/include/`.
 

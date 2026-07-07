@@ -3,7 +3,7 @@
 #define _XUANJIE_O1_H
 
 #define MAX_TRACKED_FDS      64
-#define MAX_PATH_LEN         128
+#define MAX_PATH_LEN         256
 
 // ============================================================
 // CPU 伪造 — 小米玄戒O1 (8核: 2×Cortex-X925 + 6×Cortex-A725)
@@ -86,34 +86,9 @@
 
 // ============================================================
 // GPU 伪造 — ARM Immortalis-G925
-// 路径: /sys/class/misc/mali0/device/ 或 /sys/class/misc/mali/device/
 // ============================================================
 
 #define FAKE_GPU_INFO           "Immortalis-G925"
 #define FAKE_GPU_INFO_SIZE      15
-
-// ============================================================
-// 内核版本伪造 — 匹配玄戒O1
-// ============================================================
-
-#define FAKE_KERNEL_VERSION        "6.6.77-android15-00101-gc52c7e3e6"
-#define FAKE_KERNEL_VERSION_LEN    37
-
-#define FAKE_PROC_VERSION \
-    "Linux version 6.6.77-android15-00101-gc52c7e3e6 (build@ab8) " \
-    "(Android clang version 18.0.1, LTO) #1 SMP PREEMPT Mon Jan  1 00:00:00 UTC 2025"
-#define FAKE_PROC_VERSION_SIZE \
-    (sizeof(FAKE_PROC_VERSION) - 1)
-
-// ============================================================
-// 路径匹配表
-// ============================================================
-
-struct path_entry {
-    const char *path;
-    int path_len;
-    const char *fake_data;
-    int fake_size;
-};
 
 #endif /* _XUANJIE_O1_H */
