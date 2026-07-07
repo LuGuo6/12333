@@ -41,51 +41,77 @@ struct tracked_fd {
 static struct tracked_fd tracked_fds[MAX_TRACKED_FDS];
 
 // ============================================================
-// GPU 路径匹配 — 关键词匹配，兼容所有设备
+// GPU 路径匹配 — 关键词 + 文件名匹配，兼容所有设备
 //
-// 不同 Android 系统（小米/一加/OPPO/vivo/三星...）的 GPU sysfs
-// 路径不同，但文件名有共性：
-//   - gpuinfo        (Mali 标准)
-//   - gpu_model      (Mali/Adreno 通用)
-//   - gpu_id         (Adreno)
-//   - product_id     (部分 Adreno)
+// 策略：
+//   1. 路径中必须包含 "gpu" 目录（防止误匹配非 GPU 文件）
+//   2. 按文件名返回对应的伪造数据
 //
-// 匹配策略：路径中包含上述关键词之一即视为 GPU 信息文件。
+// 覆盖的文件名（不同设备/系统可能使用不同的名称）：
+//   gpuinfo / gpu_model      → GPU 型号
+//   vendor                   → GPU 供应商（需在 gpu 路径下）
 // ============================================================
 
-// 判断路径是否为 GPU 信息文件
-static int is_gpu_info_path(const char *path, int len)
+// 提取文件名指针和长度
+static const char *get_filename(const char *path, int len, int *fname_len)
 {
     int i;
-
-    if (len < 7)
-        return 0;
-
-    // 从路径末尾向前扫描，找最后一个 '/'
     for (i = len - 1; i >= 0; i--) {
-        if (path[i] == '/')
-            break;
+        if (path[i] == '/') {
+            *fname_len = len - i - 1;
+            return path + i + 1;
+        }
     }
-    // filename = path + i + 1
-    path = path + i + 1;
+    *fname_len = len;
+    return path;
+}
 
-    // 匹配 gpuinfo
-    if (strncmp(path, "gpuinfo", 7) == 0)
-        return 1;
-
-    // 匹配 gpu_model (结尾)
-    if (len - i - 1 >= 9 && strncmp(path, "gpu_model", 9) == 0)
-        return 1;
-
-    // 匹配 gpu_id (结尾)
-    if (len - i - 1 >= 6 && strncmp(path, "gpu_id", 6) == 0)
-        return 1;
-
-    // 匹配 product_id (部分 Adreno 使用)
-    if (len - i - 1 >= 10 && strncmp(path, "product_id", 10) == 0)
-        return 1;
-
+// 检查路径中是否包含 /gpu/ 目录
+static int path_has_gpu_dir(const char *path, int len)
+{
+    int i;
+    for (i = 0; i < len - 4; i++) {
+        if (path[i] == '/' &&
+            path[i+1] == 'g' && path[i+2] == 'p' && path[i+3] == 'u' &&
+            path[i+4] == '/')
+            return 1;
+    }
     return 0;
+}
+
+// 根据文件名返回对应的伪造数据
+static const char *match_gpu_fake(const char *path, int path_len, int *out_size)
+{
+    const char *fname;
+    int flen;
+
+    // 路径中必须有 /gpu/ 目录，防止误匹配
+    if (!path_has_gpu_dir(path, path_len)) {
+        // 但也允许直接是 "gpuinfo" 或 "gpu_model" 等（无目录前缀）
+        fname = path;
+        flen = path_len;
+    } else {
+        fname = get_filename(path, path_len, &flen);
+    }
+
+    // GPU 型号
+    if (flen == 7 && strncmp(fname, "gpuinfo", 7) == 0) {
+        *out_size = FAKE_GPU_MODEL_SIZE;
+        return FAKE_GPU_MODEL;
+    }
+    if (flen == 9 && strncmp(fname, "gpu_model", 9) == 0) {
+        *out_size = FAKE_GPU_MODEL_SIZE;
+        return FAKE_GPU_MODEL;
+    }
+
+    // GPU 供应商（仅在 /gpu/ 路径下匹配）
+    if (flen == 6 && strncmp(fname, "vendor", 6) == 0 && path_has_gpu_dir(path, path_len)) {
+        *out_size = FAKE_GPU_VENDOR_SIZE;
+        return FAKE_GPU_VENDOR;
+    }
+
+    *out_size = 0;
+    return NULL;
 }
 
 // ============================================================
@@ -109,15 +135,16 @@ static int is_cpuinfo_path(const char *path, int len)
 
 static const char *match_fake_data(const char *path, int path_len, int *out_size)
 {
+    const char *fake;
+
     if (is_cpuinfo_path(path, path_len)) {
         *out_size = FAKE_CPUINFO_SIZE;
         return FAKE_CPUINFO_CONTENT;
     }
 
-    if (is_gpu_info_path(path, path_len)) {
-        *out_size = FAKE_GPU_INFO_SIZE;
-        return FAKE_GPU_INFO;
-    }
+    fake = match_gpu_fake(path, path_len, out_size);
+    if (fake)
+        return fake;
 
     *out_size = 0;
     return NULL;
