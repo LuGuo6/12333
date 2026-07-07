@@ -22,7 +22,7 @@ KPM_NAME("cpuinfo_xuanjie_o1");
 KPM_VERSION(CPUINFO_VERSION);
 KPM_LICENSE("GPL v2");
 KPM_AUTHOR("路过");
-KPM_DESCRIPTION("cpuinfo_xuanjie_o1_faker");
+KPM_DESCRIPTION("cpuinfo_xuanjie_o1_By_PassBy");
 
 static int module_enabled;
 
@@ -163,7 +163,7 @@ static void before_close(hook_fargs1_t *args, void *udata)
     }
 }
 
-static long xuanjie_init(const char *args, const char *event, void *__user reserved)
+static long cpuinfo_init(const char *args, const char *event, void *__user reserved)
 {
     unsigned int err;
 
@@ -186,7 +186,7 @@ static long xuanjie_init(const char *args, const char *event, void *__user reser
     return 0;
 }
 
-static long xuanjie_exit(void *__user reserved)
+static long cpuinfo_exit(void *__user reserved)
 {
     unhook_syscalln(__NR_openat, before_openat, after_openat);
     unhook_syscalln(__NR_read, before_read, 0);
@@ -197,7 +197,7 @@ static long xuanjie_exit(void *__user reserved)
     return 0;
 }
 
-static long xuanjie_ctl0(const char *args, char *__user out_msg, int out_msg_len)
+static long cpuinfo_ctl0(const char *args, char *__user out_msg, int out_msg_len)
 {
     int n;
 
@@ -213,6 +213,6 @@ static long xuanjie_ctl0(const char *args, char *__user out_msg, int out_msg_len
     return 0;
 }
 
-KPM_INIT(xuanjie_init);
-KPM_CTL0(xuanjie_ctl0);
-KPM_EXIT(xuanjie_exit);
+KPM_INIT(cpuinfo_init);
+KPM_CTL0(cpuinfo_ctl0);
+KPM_EXIT(cpuinfo_exit);
