@@ -41,15 +41,14 @@ struct tracked_fd {
 static struct tracked_fd tracked_fds[MAX_TRACKED_FDS];
 
 // ============================================================
-// GPU 路径匹配 — 关键词 + 文件名匹配，兼容所有设备
+// GPU 路径匹配 — 按文件名匹配，兼容所有设备
 //
-// 策略：
-//   1. 路径中必须包含 "gpu" 目录（防止误匹配非 GPU 文件）
-//   2. 按文件名返回对应的伪造数据
+// 不同 Android 系统的 GPU sysfs 路径不同，但文件名是固定的：
+//   gpuinfo / gpu_model      → GPU 型号（Mali/Adreno 通用）
+//   gpu_id / product_id      → GPU ID（Adreno 使用）
+//   vendor                   → GPU 供应商
 //
-// 覆盖的文件名（不同设备/系统可能使用不同的名称）：
-//   gpuinfo / gpu_model      → GPU 型号
-//   vendor                   → GPU 供应商（需在 gpu 路径下）
+// 这些文件名本身就是 GPU 专属的，不需要额外的目录检查。
 // ============================================================
 
 // 提取文件名指针和长度
@@ -66,33 +65,13 @@ static const char *get_filename(const char *path, int len, int *fname_len)
     return path;
 }
 
-// 检查路径中是否包含 /gpu/ 目录
-static int path_has_gpu_dir(const char *path, int len)
-{
-    int i;
-    for (i = 0; i < len - 4; i++) {
-        if (path[i] == '/' &&
-            path[i+1] == 'g' && path[i+2] == 'p' && path[i+3] == 'u' &&
-            path[i+4] == '/')
-            return 1;
-    }
-    return 0;
-}
-
 // 根据文件名返回对应的伪造数据
 static const char *match_gpu_fake(const char *path, int path_len, int *out_size)
 {
     const char *fname;
     int flen;
 
-    // 路径中必须有 /gpu/ 目录，防止误匹配
-    if (!path_has_gpu_dir(path, path_len)) {
-        // 但也允许直接是 "gpuinfo" 或 "gpu_model" 等（无目录前缀）
-        fname = path;
-        flen = path_len;
-    } else {
-        fname = get_filename(path, path_len, &flen);
-    }
+    fname = get_filename(path, path_len, &flen);
 
     // GPU 型号
     if (flen == 7 && strncmp(fname, "gpuinfo", 7) == 0) {
@@ -104,8 +83,8 @@ static const char *match_gpu_fake(const char *path, int path_len, int *out_size)
         return FAKE_GPU_MODEL;
     }
 
-    // GPU 供应商（仅在 /gpu/ 路径下匹配）
-    if (flen == 6 && strncmp(fname, "vendor", 6) == 0 && path_has_gpu_dir(path, path_len)) {
+    // GPU 供应商
+    if (flen == 6 && strncmp(fname, "vendor", 6) == 0) {
         *out_size = FAKE_GPU_VENDOR_SIZE;
         return FAKE_GPU_VENDOR;
     }
