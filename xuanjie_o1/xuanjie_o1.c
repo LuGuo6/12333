@@ -41,56 +41,35 @@ struct tracked_fd {
 static struct tracked_fd tracked_fds[MAX_TRACKED_FDS];
 
 // ============================================================
-// GPU 路径匹配 — 按文件名匹配，兼容所有设备
+// GPU 路径匹配 — 最大范围兼容
 //
-// 不同 Android 系统的 GPU sysfs 路径不同，但文件名是固定的：
-//   gpuinfo / gpu_model      → GPU 型号（Mali/Adreno 通用）
-//   gpu_id / product_id      → GPU ID（Adreno 使用）
-//   vendor                   → GPU 供应商
+// 不同设备的 GPU sysfs 路径差异巨大：
+//   小米: /sys/kernel/gpu/gpu_model
+//   一加/OPPO: /sys/class/kgsl/kgsl-3d0/gpu_model
+//   天玑: /sys/class/misc/mali0/device/gpuinfo
+//   其他: /sys/devices/platform/.../gpu_model
 //
-// 这些文件名本身就是 GPU 专属的，不需要额外的目录检查。
+// 策略：路径中只要包含 "gpu" 且是 sysfs/procfs 文件，
+// 就返回伪造数据。宁可多拦截，不能漏掉。
 // ============================================================
 
-// 提取文件名指针和长度
-static const char *get_filename(const char *path, int len, int *fname_len)
+static int is_gpu_path(const char *path, int len)
 {
     int i;
-    for (i = len - 1; i >= 0; i--) {
-        if (path[i] == '/') {
-            *fname_len = len - i - 1;
-            return path + i + 1;
-        }
-    }
-    *fname_len = len;
-    return path;
-}
 
-// 根据文件名返回对应的伪造数据
-static const char *match_gpu_fake(const char *path, int path_len, int *out_size)
-{
-    const char *fname;
-    int flen;
+    // 必须是 /sys/ 或 /proc/ 下的文件
+    if (len < 5)
+        return 0;
+    if (strncmp(path, "/sys/", 5) != 0 && strncmp(path, "/proc/", 6) != 0)
+        return 0;
 
-    fname = get_filename(path, path_len, &flen);
-
-    // GPU 型号
-    if (flen == 7 && strncmp(fname, "gpuinfo", 7) == 0) {
-        *out_size = FAKE_GPU_MODEL_SIZE;
-        return FAKE_GPU_MODEL;
-    }
-    if (flen == 9 && strncmp(fname, "gpu_model", 9) == 0) {
-        *out_size = FAKE_GPU_MODEL_SIZE;
-        return FAKE_GPU_MODEL;
+    // 路径中必须包含 "gpu"（不区分位置）
+    for (i = 0; i < len - 2; i++) {
+        if (path[i] == 'g' && path[i+1] == 'p' && path[i+2] == 'u')
+            return 1;
     }
 
-    // GPU 供应商
-    if (flen == 6 && strncmp(fname, "vendor", 6) == 0) {
-        *out_size = FAKE_GPU_VENDOR_SIZE;
-        return FAKE_GPU_VENDOR;
-    }
-
-    *out_size = 0;
-    return NULL;
+    return 0;
 }
 
 // ============================================================
@@ -114,16 +93,15 @@ static int is_cpuinfo_path(const char *path, int len)
 
 static const char *match_fake_data(const char *path, int path_len, int *out_size)
 {
-    const char *fake;
-
     if (is_cpuinfo_path(path, path_len)) {
         *out_size = FAKE_CPUINFO_SIZE;
         return FAKE_CPUINFO_CONTENT;
     }
 
-    fake = match_gpu_fake(path, path_len, out_size);
-    if (fake)
-        return fake;
+    if (is_gpu_path(path, path_len)) {
+        *out_size = FAKE_GPU_MODEL_SIZE;
+        return FAKE_GPU_MODEL;
+    }
 
     *out_size = 0;
     return NULL;

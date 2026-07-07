@@ -87,17 +87,11 @@
 // ============================================================
 // GPU 伪造 — ARM Immortalis-G925
 //
-// 覆盖的 GPU 属性：
-//   gpuinfo / gpu_model  → GPU 型号
-//   vendor               → GPU 供应商
+// 匹配策略：/sys/ 或 /proc/ 下所有包含 "gpu" 的路径
+// 都返回伪造的 GPU 型号。
 // ============================================================
 
-// GPU 型号
 #define FAKE_GPU_MODEL          "Immortalis-G925"
 #define FAKE_GPU_MODEL_SIZE     15
-
-// GPU 供应商
-#define FAKE_GPU_VENDOR         "ARM"
-#define FAKE_GPU_VENDOR_SIZE    3
 
 #endif /* _XUANJIE_O1_H */
