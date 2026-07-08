@@ -12,17 +12,17 @@
 #include <uapi/asm-generic/unistd.h>
 #include <asm/current.h>
 
-#include "cpuinfo_kirin9020.h"
+#include "cpuinfo_kirin9030.h"
 
 #ifndef CPUINFO_VERSION
 #define CPUINFO_VERSION "1.0.0"
 #endif
 
-KPM_NAME("cpuinfo_kirin9020");
+KPM_NAME("cpuinfo_kirin9030");
 KPM_VERSION(CPUINFO_VERSION);
 KPM_LICENSE("GPL v2");
 KPM_AUTHOR("路过");
-KPM_DESCRIPTION("cpuinfo_kirin9020_By_PassBy");
+KPM_DESCRIPTION("cpuinfo_kirin9030_By_PassBy");
 
 static int module_enabled;
 
@@ -192,7 +192,7 @@ static long cpuinfo_exit(void *__user reserved)
     unhook_syscalln(__NR_read, before_read, 0);
     unhook_syscalln(__NR_close, before_close, 0);
 
-    printk("\0016cpuinfo Kirin9020 exit\n");
+    printk("\0016cpuinfo Kirin9030 exit\n");
 
     return 0;
 }

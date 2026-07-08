@@ -35,20 +35,20 @@ INCLUDE_DIRS := . include patch/include linux/include linux/arch/arm64/include l
 
 INCLUDE_FLAGS := $(foreach dir,$(INCLUDE_DIRS),-I$(KP_DIR)/kernel/$(dir))
 
-objs := cpuinfo_kirin9020.c
+objs := cpuinfo_kirin9030.c
 
 all: base
 
-base: cpuinfo_kirin9020_$(CPUINFO_VERSION).kpm
+base: cpuinfo_kirin9030_$(CPUINFO_VERSION).kpm
 
 debug: CFLAGS += -DCONFIG_DEBUG
 debug: CPUINFO_VER := _d
-debug: cpuinfo_kirin9020_$(CPUINFO_VERSION)_debug.kpm
+debug: cpuinfo_kirin9030_$(CPUINFO_VERSION)_debug.kpm
 
-cpuinfo_kirin9020_$(CPUINFO_VERSION).kpm: ${objs}
+cpuinfo_kirin9030_$(CPUINFO_VERSION).kpm: ${objs}
 	${CC} $(CFLAGS) $(CFLAG) $(INCLUDE_FLAGS) $^ -r -o $@
 
-cpuinfo_kirin9020_$(CPUINFO_VERSION)_debug.kpm: ${objs}
+cpuinfo_kirin9030_$(CPUINFO_VERSION)_debug.kpm: ${objs}
 	${CC} $(CFLAGS) $(CFLAG) $(INCLUDE_FLAGS) $^ -r -o $@
 
 .PHONY: clean
