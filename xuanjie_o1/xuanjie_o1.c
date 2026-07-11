@@ -132,6 +132,12 @@ static void before_openat(hook_fargs4_t *args, void *udata)
         return;
 
     fake = match_fake_data(buf, (int)ret, &fake_size);
+    // 同时追踪 GPU 设备文件 (/dev/kgsl-3d0, /dev/mali0)
+    if (!fake && ret > 5 && strncmp(buf, "/dev/", 5) == 0 &&
+        (strstr(buf, "kgsl") || strstr(buf, "mali") || strstr(buf, "gpu"))) {
+        fake = "";  // 空字符串标记为 GPU fd
+        fake_size = 0;
+    }
     if (fake && module_enabled) {
         args->local.data0 = 1;
         args->local.data1 = (long)fake;
@@ -248,6 +254,97 @@ static void before_close(hook_fargs1_t *args, void *udata)
 }
 
 // ============================================================
+// ioctl hook — 拦截 GPU 驱动属性查询，伪造 glGetString 结果
+//
+// glGetString(GL_RENDERER) 最终调用:
+//   ioctl(fd, KGSL_IOCTL_DEVICE_GETPROPERTY, &prop)
+//
+// KGSL ioctl 命令号格式: (type << 8) | nr
+// type = 0x09 (KGSL magic number)
+// ============================================================
+
+// KGSL ioctl magic number
+#define KGSL_IOC_TYPE  0x09
+
+// 检查 ioctl 命令是否是 KGSL GPU 命令
+static inline int is_kgsl_ioctl(unsigned int cmd)
+{
+    return ((cmd >> 8) & 0xFF) == KGSL_IOC_TYPE;
+}
+
+// 伪造的 GPU 信息
+static const char fake_renderer[] = "Immortalis-G925";
+static const char fake_vendor[] = "ARM";
+
+// ioctl before 回调：拦截 GPU 属性查询
+static void before_ioctl(hook_fargs3_t *args, void *udata)
+{
+    unsigned int fd;
+    unsigned int cmd;
+    struct task_struct *task;
+    int i;
+
+    if (!module_enabled)
+        return;
+
+    fd = (unsigned int)syscall_argn(args, 0);
+    cmd = (unsigned int)syscall_argn(args, 1);
+
+    // 只处理 KGSL ioctl
+    if (!is_kgsl_ioctl(cmd))
+        return;
+
+    // 检查是否是已追踪的 GPU fd
+    task = get_current();
+    for (i = 0; i < MAX_TRACKED_FDS; i++) {
+        if (tracked_fds[i].task == task && tracked_fds[i].fd == (int)fd)
+            break;
+    }
+    if (i == MAX_TRACKED_FDS)
+        return;
+
+    // 让原始 ioctl 执行，我们在 after 中修改返回数据
+    args->local.data0 = 1;
+}
+
+// ioctl after 回调：修改 GPU 属性返回值
+static void after_ioctl(hook_fargs3_t *args, void *udata)
+{
+    unsigned long arg_ptr;
+    char kbuf[256];
+    long ret;
+    int i;
+
+    if (!args->local.data0 || args->ret)
+        return;
+
+    arg_ptr = syscall_argn(args, 2);
+    if (!arg_ptr)
+        return;
+
+    // 从用户空间读取 ioctl 参数
+    ret = compat_strncpy_from_user(kbuf, (const char __user *)arg_ptr, 256);
+    if (ret <= 0)
+        return;
+
+    kbuf[255] = 0;
+
+    // 搜索返回数据中的 GPU 字符串并替换
+    for (i = 0; i < 256 - 15; i++) {
+        // 替换 "Adreno" 开头的字符串为 "Immortalis-G925"
+        if (kbuf[i] == 'A' && kbuf[i+1] == 'd' && kbuf[i+2] == 'r' &&
+            kbuf[i+3] == 'e' && kbuf[i+4] == 'n' && kbuf[i+5] == 'o') {
+            memset(kbuf + i, 0, 20);
+            memcpy(kbuf + i, fake_renderer, sizeof(fake_renderer) - 1);
+            break;
+        }
+    }
+
+    // 写回用户空间
+    compat_copy_to_user((void __user *)arg_ptr, kbuf, 256);
+}
+
+// ============================================================
 // KPM 生命周期函数
 // ============================================================
 
@@ -271,6 +368,10 @@ static long xuanjie_init(const char *args, const char *event, void *__user reser
     if (err)
         printk("\0013xuanjie_o1 hook close error: %d\n", err);
 
+    err = hook_syscalln(__NR_ioctl, 3, before_ioctl, after_ioctl, 0);
+    if (err)
+        printk("\0013xuanjie_o1 hook ioctl error: %d\n", err);
+
     printk("\0016xuanjie_o1 init complete\n");
 
     return 0;
@@ -281,6 +382,7 @@ static long xuanjie_exit(void *__user reserved)
     unhook_syscalln(__NR_openat, before_openat, after_openat);
     unhook_syscalln(__NR_read, before_read, 0);
     unhook_syscalln(__NR_close, before_close, 0);
+    unhook_syscalln(__NR_ioctl, before_ioctl, after_ioctl);
 
     printk("\0016xuanjie_o1 exit\n");
 
