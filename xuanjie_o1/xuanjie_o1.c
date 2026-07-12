@@ -132,12 +132,6 @@ static void before_openat(hook_fargs4_t *args, void *udata)
         return;
 
     fake = match_fake_data(buf, (int)ret, &fake_size);
-    // 追踪 GPU 设备文件 (/dev/kgsl-3d0, /dev/mali0)
-    if (!fake && ret > 5 && strncmp(buf, "/dev/", 5) == 0 &&
-        (strstr(buf, "kgsl") || strstr(buf, "mali") || strstr(buf, "gpu"))) {
-        fake = "";  // 空字符串标记为 GPU fd
-        fake_size = 0;
-    }
     if (fake && module_enabled) {
         args->local.data0 = 1;
         args->local.data1 = (long)fake;
@@ -254,89 +248,6 @@ static void before_close(hook_fargs1_t *args, void *udata)
 }
 
 // ============================================================
-// ioctl hook — 安全版本，搜索并替换 GPU 字符串
-// ============================================================
-
-// KGSL ioctl magic number
-#define KGSL_IOC_TYPE  0x09
-
-// 伪造的 GPU 信息
-static const char fake_renderer[] = "Immortalis-G925";
-
-// 检查 ioctl 命令是否是 KGSL GPU 命令
-static inline int is_kgsl_ioctl(unsigned int cmd)
-{
-    return ((cmd >> 8) & 0xFF) == KGSL_IOC_TYPE;
-}
-
-// 检查 fd 是否是 GPU 设备文件
-static int is_gpu_dev_fd(unsigned int fd)
-{
-    struct task_struct *task = get_current();
-    int i;
-    for (i = 0; i < MAX_TRACKED_FDS; i++) {
-        if (tracked_fds[i].task == task && tracked_fds[i].fd == (int)fd)
-            return 1;
-    }
-    return 0;
-}
-
-// before 回调：标记需要拦截的 GPU ioctl
-static void before_ioctl(hook_fargs3_t *args, void *udata)
-{
-    unsigned int fd;
-    unsigned int cmd;
-
-    if (!module_enabled)
-        return;
-
-    fd = (unsigned int)syscall_argn(args, 0);
-    cmd = (unsigned int)syscall_argn(args, 1);
-
-    // 只拦截 KGSL GPU ioctl 且是已追踪的 GPU fd
-    if (is_kgsl_ioctl(cmd) && is_gpu_dev_fd(fd)) {
-        args->local.data0 = 1;
-    }
-}
-
-// after 回调：读取 ioctl 参数，搜索并替换 "Adreno"
-static void after_ioctl(hook_fargs3_t *args, void *udata)
-{
-    unsigned long arg;
-    char buf[256];
-    long ret;
-    int i;
-
-    if (!args->local.data0)
-        return;
-
-    arg = syscall_argn(args, 2);
-    if (!arg)
-        return;
-
-    // 从用户空间读取 ioctl 参数（栈缓冲区，安全）
-    ret = compat_strncpy_from_user(buf, (const char __user *)arg, 255);
-    if (ret <= 0)
-        return;
-
-    buf[255] = 0;
-
-    // 搜索 "Adreno" 并替换为 "Immortalis-G925"
-    for (i = 0; i < 255 - 6; i++) {
-        if (buf[i] == 'A' && buf[i+1] == 'd' && buf[i+2] == 'r' &&
-            buf[i+3] == 'e' && buf[i+4] == 'n' && buf[i+5] == 'o') {
-            // 先清零，再写入伪造数据
-            memset(buf + i, 0, 20);
-            memcpy(buf + i, fake_renderer, sizeof(fake_renderer) - 1);
-            break;
-        }
-    }
-
-    // 写回用户空间
-    compat_copy_to_user((void __user *)arg, buf, 256);
-}
-
-// ============================================================
 // KPM 生命周期函数
 // ============================================================
 
@@ -360,10 +271,6 @@ static long xuanjie_init(const char *args, const char *event, void *__user reser
     if (err)
         printk("\0013xuanjie_o1 hook close error: %d\n", err);
 
-    err = hook_syscalln(__NR_ioctl, 3, before_ioctl, after_ioctl, 0);
-    if (err)
-        printk("\0013xuanjie_o1 hook ioctl error: %d\n", err);
-
     printk("\0016xuanjie_o1 init complete\n");
 
     return 0;
@@ -374,7 +281,6 @@ static long xuanjie_exit(void *__user reserved)
     unhook_syscalln(__NR_openat, before_openat, after_openat);
     unhook_syscalln(__NR_read, before_read, 0);
     unhook_syscalln(__NR_close, before_close, 0);
-    unhook_syscalln(__NR_ioctl, before_ioctl, after_ioctl);
 
     printk("\0016xuanjie_o1 exit\n");
 
