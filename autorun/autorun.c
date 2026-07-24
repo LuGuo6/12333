@@ -19,22 +19,17 @@ KPM_LICENSE("GPL v2");
 KPM_AUTHOR("");
 KPM_DESCRIPTION("Auto-run script at /data/adb/autorun");
 
+extern int call_usermodehelper(const char *path, char **argv, char **envp, int wait);
+
 static long autorun_init(const char *args, const char *event, void *__user reserved)
 {
     char *argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
     char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin", NULL };
     int ret;
 
-    int (*call_umh)(const char *, char **, char **, int) = NULL;
-    call_umh = (typeof(call_umh))kallsyms_lookup_name("call_usermodehelper");
-    if (!call_umh) {
-        pr_err("autorun: call_usermodehelper not found\n");
-        return -1;
-    }
-
     pr_info("autorun: executing %s\n", AUTORUN_SCRIPT_PATH);
 
-    ret = call_umh(argv[0], argv, envp, 1);
+    ret = call_usermodehelper(argv[0], argv, envp, 1);
     if (ret) {
         pr_err("autorun: call_usermodehelper failed, ret=%d\n", ret);
     } else {
