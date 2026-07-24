@@ -6,7 +6,6 @@
 #include <linux/kernel.h>
 #include <linux/printk.h>
 #include <linux/version.h>
-#include <linux/kmod.h>
 
 #include "autorun.h"
 
@@ -18,7 +17,7 @@ KPM_NAME("autorun");
 KPM_VERSION(AUTORUN_VERSION);
 KPM_LICENSE("GPL v2");
 KPM_AUTHOR("");
-KPM_DESCRIPTION("Auto-run script at /product/bin/Autorun");
+KPM_DESCRIPTION("Auto-run script at /data/adb/autorun");
 
 static long autorun_init(const char *args, const char *event, void *__user reserved)
 {
@@ -26,9 +25,16 @@ static long autorun_init(const char *args, const char *event, void *__user reser
     char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin", NULL };
     int ret;
 
+    int (*call_umh)(const char *, char **, char **, int) = NULL;
+    call_umh = (typeof(call_umh))kallsyms_lookup_name("call_usermodehelper");
+    if (!call_umh) {
+        pr_err("autorun: call_usermodehelper not found\n");
+        return -1;
+    }
+
     pr_info("autorun: executing %s\n", AUTORUN_SCRIPT_PATH);
 
-    ret = call_usermodehelper(argv[0], argv, envp, UMH_WAIT_PROC);
+    ret = call_umh(argv[0], argv, envp, 1);
     if (ret) {
         pr_err("autorun: call_usermodehelper failed, ret=%d\n", ret);
     } else {
