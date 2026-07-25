@@ -19,57 +19,28 @@ KPM_LICENSE("GPL v2");
 KPM_AUTHOR("");
 KPM_DESCRIPTION("Auto-run script at /data/adb/Autorun");
 
-// 定义需要的常量
-#define UMH_NO_WAIT    0
-#define UMH_WAIT_PROC  1
-#define UMH_WAIT_EXEC  2
+#define UMH_WAIT_PROC 1
 
-// 声明函数类型
 typedef int (*call_usermodehelper_t)(const char *path, char **argv, char **envp, int wait);
-
-// 全局变量用于缓存函数指针
-static call_usermodehelper_t call_umh = NULL;
 
 static long autorun_init(const char *args, const char *event, void *__user reserved)
 {
+    call_usermodehelper_t call_umh;
     int ret;
     
     printk(KERN_INFO "autorun: init, event=%s\n", event);
     
-    // 只查找一次 call_usermodehelper
+    call_umh = (call_usermodehelper_t)kallsyms_lookup_name("call_usermodehelper");
     if (!call_umh) {
-        call_umh = (call_usermodehelper_t)kallsyms_lookup_name("call_usermodehelper");
-        if (!call_umh) {
-            printk(KERN_ERR "autorun: call_usermodehelper not found in kernel\n");
-            return -1;
-        }
-        printk(KERN_INFO "autorun: call_usermodehelper found at %p\n", call_umh);
+        printk(KERN_ERR "autorun: call_usermodehelper not found\n");
+        return -1;
     }
     
-    // 尝试直接执行脚本
-    char *sh_argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
-    char *envp[] = { 
-        "HOME=/", 
-        "PATH=/sbin:/system/sbin:/system/bin:/system/xbin:/product/bin:/vendor/bin", 
-        NULL 
-    };
+    char *argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
+    char *envp[] = { "PATH=/sbin:/system/sbin:/system/bin:/system/xbin", NULL };
     
-    // 方法1: 通过 sh 执行
-    ret = call_umh(sh_argv[0], sh_argv, envp, UMH_WAIT_PROC);
-    if (ret == 0) {
-        printk(KERN_INFO "autorun: script executed successfully via sh\n");
-        return 0;
-    }
-    printk(KERN_WARNING "autorun: sh execution failed, ret=%d, trying direct...\n", ret);
-    
-    // 方法2: 直接执行脚本（需要脚本有 shebang 和执行权限）
-    char *dir_argv[] = { AUTORUN_SCRIPT_PATH, NULL };
-    ret = call_umh(dir_argv[0], dir_argv, envp, UMH_WAIT_PROC);
-    if (ret == 0) {
-        printk(KERN_INFO "autorun: script executed successfully directly\n");
-        return 0;
-    }
-    printk(KERN_ERR "autorun: all execution methods failed, ret=%d\n", ret);
+    ret = call_umh(argv[0], argv, envp, UMH_WAIT_PROC);
+    printk(KERN_INFO "autorun: execution result=%d\n", ret);
     
     return ret;
 }
