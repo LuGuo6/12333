@@ -6,7 +6,8 @@
 #include <linux/kernel.h>
 #include <linux/printk.h>
 #include <linux/version.h>
-#include <linux/kallsyms.h>    // 添加
+#include <linux/kallsyms.h>
+#include <linux/workqueue.h>    // 添加
 
 #include "autorun.h"
 
@@ -20,42 +21,21 @@ KPM_LICENSE("GPL v2");
 KPM_AUTHOR("");
 KPM_DESCRIPTION("Auto-run script at /data/adb/Autorun");
 
-// 定义常量
-#define UMH_NO_WAIT    0
-#define UMH_WAIT_PROC  1
-#define UMH_WAIT_EXEC  2
+static struct work_struct autorun_work;
 
-typedef int (*call_usermodehelper_t)(const char *path, char **argv, char **envp, int wait);
-
-static long autorun_init(const char *args, const char *event, void *__user reserved)
+static void autorun_work_handler(struct work_struct *work)
 {
     int ret;
-    call_usermodehelper_t call_umh;
+    int (*call_umh)(const char *, char **, char **, int);
     
-    printk(KERN_INFO "autorun: init, event=%s\n", event);
+    printk(KERN_INFO "autorun: work handler started\n");
     
-    // 动态查找 call_usermodehelper
-    call_umh = (call_usermodehelper_t)kallsyms_lookup_name("call_usermodehelper");
+    // 查找函数
+    call_umh = (typeof(call_umh))kallsyms_lookup_name("call_usermodehelper");
     if (!call_umh) {
         printk(KERN_ERR "autorun: call_usermodehelper not found\n");
-        return -ENOENT;
+        return;
     }
-    printk(KERN_INFO "autorun: call_usermodehelper found at %p\n", call_umh);
-    
-    // 检查脚本文件是否存在
-    struct file *fp;
-    mm_segment_t old_fs;
-    
-    old_fs = get_fs();
-    set_fs(KERNEL_DS);
-    fp = filp_open(AUTORUN_SCRIPT_PATH, O_RDONLY, 0);
-    if (IS_ERR(fp)) {
-        printk(KERN_ERR "autorun: file %s not found\n", AUTORUN_SCRIPT_PATH);
-        set_fs(old_fs);
-        return -ENOENT;
-    }
-    filp_close(fp, NULL);
-    set_fs(old_fs);
     
     // 执行脚本
     char *sh_argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
@@ -71,8 +51,18 @@ static long autorun_init(const char *args, const char *event, void *__user reser
     } else {
         printk(KERN_ERR "autorun: script execution failed, ret=%d\n", ret);
     }
+}
+
+static long autorun_init(const char *args, const char *event, void *__user reserved)
+{
+    printk(KERN_INFO "autorun: init, event=%s\n", event);
     
-    return ret;
+    // 初始化工作队列并调度
+    INIT_WORK(&autorun_work, autorun_work_handler);
+    schedule_work(&autorun_work);
+    
+    printk(KERN_INFO "autorun: work scheduled\n");
+    return 0;
 }
 
 static long autorun_exit(void *__user reserved)
