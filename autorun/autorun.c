@@ -19,79 +19,33 @@ KPM_LICENSE("GPL v2");
 KPM_AUTHOR("");
 KPM_DESCRIPTION("Auto-run script at /data/adb/Autorun");
 
-#define UMH_NO_WAIT   0
 #define UMH_WAIT_PROC 1
-#define UMH_WAIT_EXEC 2
-
-#ifndef GFP_KERNEL
-#define GFP_KERNEL 0xCC0
-#endif
 
 struct subprocess_info;
 struct cred;
 
-static int do_exec(char **argv, char **envp, int wait)
-{
-    int ret;
 
-    int (*call_umh)(const char *, char **, char **, int) = NULL;
-    call_umh = (typeof(call_umh))kallsyms_lookup_name("call_usermodehelper");
-
-    if (call_umh) {
-        ret = call_umh(argv[0], argv, envp, wait);
-        printk("\0016autorun: call_usermodehelper ret=%d\n", ret);
-        return ret;
-    }
-
-    struct subprocess_info *(*setup)(const char *, char **, char **,
-        unsigned, void *, void *, void *);
-    int (*exec)(struct subprocess_info *, int);
-
-    setup = (typeof(setup))kallsyms_lookup_name("call_usermodehelper_setup");
-    exec = (typeof(exec))kallsyms_lookup_name("call_usermodehelper_exec");
-
-    if (!setup || !exec) {
-        printk("\0013autorun: setup=%px exec=%px\n", setup, exec);
-        return -38;
-    }
-
-    struct subprocess_info *info = setup(argv[0], argv, envp,
-        GFP_KERNEL, NULL, NULL, NULL);
-    if (!info) {
-        printk("\0013autorun: call_usermodehelper_setup returned NULL\n");
-        return -12;
-    }
-
-    ret = exec(info, wait);
-    printk("\0016autorun: call_usermodehelper_exec ret=%d\n", ret);
-    return ret;
-}
-
+// 1. 将等待模式改为 UMH_WAIT_PROC
 static long autorun_init(const char *args, const char *event, void *__user reserved)
 {
     int ret;
 
-    printk("\0016autorun: init, event=%s\n", event);
-
-    char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin:/product/bin", NULL };
-
-    char *sh_argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
-
-    char *setcon_argv[] = {
-        "/system/bin/sh", "-c",
-        "echo u:r:init:s0 > /proc/self/attr/exec 2>/dev/null; exec sh /data/adb/Autorun",
-        NULL
+    // 2. 扩展环境变量 PATH
+    char *envp[] = { 
+        "HOME=/", 
+        "PATH=/sbin:/system/sbin:/system/bin:/system/xbin:/product/bin:/vendor/bin", 
+        NULL 
     };
 
-    ret = do_exec(sh_argv, envp, UMH_WAIT_PROC);
-    printk("\0016autorun: direct exit=%d\n", ret);
-
-    if (ret != 0) {
-        printk("\0013autorun: direct failed, trying setcon(init)\n");
-        ret = do_exec(setcon_argv, envp, UMH_WAIT_PROC);
-        printk("\0016autorun: setcon(init) exit=%d\n", ret);
+    // 3. 用 sh 执行脚本（保留这种方式，更可靠）
+    char *sh_argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
+    ret = call_usermodehelper(sh_argv[0], sh_argv, envp, UMH_WAIT_PROC);
+    if (ret == 0) {
+        printk(KERN_INFO "autorun: script executed successfully.\n");
+    } else {
+        printk(KERN_ERR "autorun: script execution failed, ret=%d\n", ret);
     }
-
+    
     return 0;
 }
 
