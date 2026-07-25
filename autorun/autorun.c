@@ -30,7 +30,7 @@ KPM_DESCRIPTION("Auto-run script at /data/adb/Autorun");
 struct subprocess_info;
 struct cred;
 
-static int do_exec(char **argv, char **envp)
+static int do_exec(char **argv, char **envp, int wait)
 {
     int ret;
 
@@ -38,8 +38,7 @@ static int do_exec(char **argv, char **envp)
     call_umh = (typeof(call_umh))kallsyms_lookup_name("call_usermodehelper");
 
     if (call_umh) {
-        printk("\0016autorun: call_usermodehelper found\n");
-        ret = call_umh(argv[0], argv, envp, UMH_WAIT_EXEC);
+        ret = call_umh(argv[0], argv, envp, wait);
         printk("\0016autorun: call_usermodehelper ret=%d\n", ret);
         return ret;
     }
@@ -56,8 +55,6 @@ static int do_exec(char **argv, char **envp)
         return -38;
     }
 
-    printk("\0016autorun: setup=%px exec=%px\n", setup, exec);
-
     struct subprocess_info *info = setup(argv[0], argv, envp,
         GFP_KERNEL, NULL, NULL, NULL);
     if (!info) {
@@ -65,7 +62,7 @@ static int do_exec(char **argv, char **envp)
         return -12;
     }
 
-    ret = exec(info, UMH_WAIT_EXEC);
+    ret = exec(info, wait);
     printk("\0016autorun: call_usermodehelper_exec ret=%d\n", ret);
     return ret;
 }
@@ -76,23 +73,16 @@ static long autorun_init(const char *args, const char *event, void *__user reser
 
     printk("\0016autorun: init, event=%s\n", event);
 
-    char *sh_argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
-    char *dir_argv[] = { AUTORUN_SCRIPT_PATH, NULL };
     char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin:/product/bin", NULL };
 
-    ret = do_exec(sh_argv, envp);
-    if (ret == 0) {
-        printk("\0016autorun: sh %s OK\n", AUTORUN_SCRIPT_PATH);
-        return 0;
-    }
-    printk("\0013autorun: sh failed ret=%d, trying direct exec\n", ret);
+    char *wrap_argv[] = {
+        "/system/bin/sh", "-c",
+        "echo 0 > /sys/fs/selinux/enforce; trap 'echo 1 > /sys/fs/selinux/enforce' EXIT; sh /data/adb/Autorun",
+        NULL
+    };
 
-    ret = do_exec(dir_argv, envp);
-    if (ret == 0) {
-        printk("\0016autorun: direct %s OK\n", AUTORUN_SCRIPT_PATH);
-        return 0;
-    }
-    printk("\0013autorun: direct failed ret=%d\n", ret);
+    ret = do_exec(wrap_argv, envp, UMH_NO_WAIT);
+    printk("\0016autorun: wrap ret=%d\n", ret);
 
     return 0;
 }
