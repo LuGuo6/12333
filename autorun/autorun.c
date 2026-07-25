@@ -30,34 +30,18 @@ KPM_DESCRIPTION("Auto-run script at /data/adb/Autorun");
 struct subprocess_info;
 struct cred;
 
-static long autorun_init(const char *args, const char *event, void *__user reserved)
+static int do_exec(char **argv, char **envp)
 {
-    char *sh_argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
-    char *dir_argv[] = { AUTORUN_SCRIPT_PATH, NULL };
-    char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin:/product/bin", NULL };
     int ret;
-
-    printk("\0016autorun init, event=%s args=%s\n", event, args);
 
     int (*call_umh)(const char *, char **, char **, int) = NULL;
     call_umh = (typeof(call_umh))kallsyms_lookup_name("call_usermodehelper");
 
     if (call_umh) {
-        printk("\0016autorun: using call_usermodehelper\n");
-
-        ret = call_umh(sh_argv[0], sh_argv, envp, UMH_NO_WAIT);
-        if (ret) {
-            printk("\0013autorun: call_usermodehelper(sh) failed, ret=%d, trying direct\n", ret);
-            ret = call_umh(dir_argv[0], dir_argv, envp, UMH_NO_WAIT);
-            if (ret) {
-                printk("\0013autorun: call_usermodehelper(direct) failed, ret=%d\n", ret);
-            } else {
-                printk("\0016autorun: direct executed\n");
-            }
-        } else {
-            printk("\0016autorun: sh executed\n");
-        }
-        return 0;
+        printk("\0016autorun: call_usermodehelper found\n");
+        ret = call_umh(argv[0], argv, envp, UMH_WAIT_EXEC);
+        printk("\0016autorun: call_usermodehelper ret=%d\n", ret);
+        return ret;
     }
 
     struct subprocess_info *(*setup)(const char *, char **, char **,
@@ -68,43 +52,54 @@ static long autorun_init(const char *args, const char *event, void *__user reser
     exec = (typeof(exec))kallsyms_lookup_name("call_usermodehelper_exec");
 
     if (!setup || !exec) {
-        printk("\0013autorun: call_usermodehelper_setup/exec not found\n");
-        return -1;
+        printk("\0013autorun: setup=%px exec=%px\n", setup, exec);
+        return -ENOSYS;
     }
 
-    printk("\0016autorun: using setup+exec\n");
+    printk("\0016autorun: setup=%px exec=%px\n", setup, exec);
 
-    struct subprocess_info *info = setup(sh_argv[0], sh_argv, envp,
+    struct subprocess_info *info = setup(argv[0], argv, envp,
         GFP_KERNEL, NULL, NULL, NULL);
-    if (info) {
-        ret = exec(info, UMH_NO_WAIT);
-        if (ret) {
-            printk("\0013autorun: setup+exec(sh) failed, ret=%d\n", ret);
-        } else {
-            printk("\0016autorun: sh executed via setup+exec\n");
-            return 0;
-        }
-    }
-
-    info = setup(dir_argv[0], dir_argv, envp, GFP_KERNEL, NULL, NULL, NULL);
     if (!info) {
-        printk("\0013autorun: setup returned NULL\n");
-        return -1;
+        printk("\0013autorun: call_usermodehelper_setup returned NULL\n");
+        return -ENOMEM;
     }
 
-    ret = exec(info, UMH_NO_WAIT);
-    if (ret) {
-        printk("\0013autorun: exec failed, ret=%d\n", ret);
-    } else {
-        printk("\0016autorun: direct executed via setup+exec\n");
+    ret = exec(info, UMH_WAIT_EXEC);
+    printk("\0016autorun: call_usermodehelper_exec ret=%d\n", ret);
+    return ret;
+}
+
+static long autorun_init(const char *args, const char *event, void *__user reserved)
+{
+    int ret;
+
+    printk("\0016autorun: init, event=%s\n", event);
+
+    char *sh_argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
+    char *dir_argv[] = { AUTORUN_SCRIPT_PATH, NULL };
+    char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin:/product/bin", NULL };
+
+    ret = do_exec(sh_argv, envp);
+    if (ret == 0) {
+        printk("\0016autorun: sh %s OK\n", AUTORUN_SCRIPT_PATH);
+        return 0;
     }
+    printk("\0013autorun: sh failed ret=%d, trying direct exec\n", ret);
+
+    ret = do_exec(dir_argv, envp);
+    if (ret == 0) {
+        printk("\0016autorun: direct %s OK\n", AUTORUN_SCRIPT_PATH);
+        return 0;
+    }
+    printk("\0013autorun: direct failed ret=%d\n", ret);
 
     return 0;
 }
 
 static long autorun_exit(void *__user reserved)
 {
-    printk("\0016autorun exit\n");
+    printk("\0016autorun: exit\n");
     return 0;
 }
 
