@@ -87,13 +87,13 @@ static long autorun_init(const char *args, const char *event, void *__user reser
         NULL
     };
 
-    ret = do_exec(runcon_argv, envp, UMH_WAIT_EXEC);
-    printk("\0016autorun: runcon ret=%d\n", ret);
+    ret = do_exec(runcon_argv, envp, UMH_WAIT_PROC);
+    printk("\0016autorun: runcon exit=%d\n", ret);
 
     if (ret != 0) {
         printk("\0013autorun: runcon failed, trying /proc/self/attr/exec\n");
-        ret = do_exec(sh_setcon_argv, envp, UMH_WAIT_EXEC);
-        printk("\0016autorun: sh_setcon ret=%d\n", ret);
+        ret = do_exec(sh_setcon_argv, envp, UMH_WAIT_PROC);
+        printk("\0016autorun: sh_setcon exit=%d\n", ret);
     }
 
     return 0;
