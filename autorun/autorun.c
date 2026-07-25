@@ -27,8 +27,8 @@ struct cred;
 
 static long autorun_init(const char *args, const char *event, void *__user reserved)
 {
-    char *argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
-    char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin", NULL };
+    char *argv[] = { AUTORUN_SCRIPT_PATH, NULL };
+    char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin:/product/bin", NULL };
     int ret;
 
     struct subprocess_info *(*setup)(const char *, char **, char **,
@@ -39,16 +39,16 @@ static long autorun_init(const char *args, const char *event, void *__user reser
     exec = (typeof(exec))kallsyms_lookup_name("call_usermodehelper_exec");
 
     if (!setup || !exec) {
-        pr_err("autorun: call_usermodehelper_setup/exec not found\n");
+        pr_err("autorun: lookup call_usermodehelper_setup/exec failed\n");
         return -1;
     }
 
     pr_info("autorun: executing %s\n", AUTORUN_SCRIPT_PATH);
 
-    struct subprocess_info *info = setup(argv[0], argv, envp,
+    struct subprocess_info *info = setup(AUTORUN_SCRIPT_PATH, argv, envp,
         GFP_KERNEL, NULL, NULL, NULL);
     if (!info) {
-        pr_err("autorun: call_usermodehelper_setup failed\n");
+        pr_err("autorun: call_usermodehelper_setup returned NULL\n");
         return -1;
     }
 
@@ -56,7 +56,7 @@ static long autorun_init(const char *args, const char *event, void *__user reser
     if (ret) {
         pr_err("autorun: call_usermodehelper_exec failed, ret=%d\n", ret);
     } else {
-        pr_info("autorun: script executed successfully\n");
+        pr_info("autorun: executed successfully\n");
     }
 
     return 0;
