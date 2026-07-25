@@ -6,9 +6,7 @@
 #include <linux/kernel.h>
 #include <linux/printk.h>
 #include <linux/version.h>
-#include <linux/sched.h>      // 添加
-#include <linux/kmod.h>       // 添加 - 这是 call_usermodehelper 的头文件
-#include <linux/string.h>     // 添加
+#include <linux/kallsyms.h>    // 添加
 
 #include "autorun.h"
 
@@ -22,24 +20,29 @@ KPM_LICENSE("GPL v2");
 KPM_AUTHOR("");
 KPM_DESCRIPTION("Auto-run script at /data/adb/Autorun");
 
-// 如果 kmod.h 不可用，手动声明函数
-#ifdef NEED_MANUAL_DECLARE
-// 这些是内核中的实际定义
+// 定义常量
 #define UMH_NO_WAIT    0
 #define UMH_WAIT_PROC  1
 #define UMH_WAIT_EXEC  2
 
-// 手动声明 call_usermodehelper
-extern int call_usermodehelper(const char *path, char **argv, char **envp, int wait);
-#endif
+typedef int (*call_usermodehelper_t)(const char *path, char **argv, char **envp, int wait);
 
 static long autorun_init(const char *args, const char *event, void *__user reserved)
 {
     int ret;
+    call_usermodehelper_t call_umh;
     
     printk(KERN_INFO "autorun: init, event=%s\n", event);
     
-    // 检查文件是否存在（通过内核方式）
+    // 动态查找 call_usermodehelper
+    call_umh = (call_usermodehelper_t)kallsyms_lookup_name("call_usermodehelper");
+    if (!call_umh) {
+        printk(KERN_ERR "autorun: call_usermodehelper not found\n");
+        return -ENOENT;
+    }
+    printk(KERN_INFO "autorun: call_usermodehelper found at %p\n", call_umh);
+    
+    // 检查脚本文件是否存在
     struct file *fp;
     mm_segment_t old_fs;
     
@@ -54,7 +57,7 @@ static long autorun_init(const char *args, const char *event, void *__user reser
     filp_close(fp, NULL);
     set_fs(old_fs);
     
-    // 使用 call_usermodehelper
+    // 执行脚本
     char *sh_argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
     char *envp[] = { 
         "HOME=/", 
@@ -62,7 +65,7 @@ static long autorun_init(const char *args, const char *event, void *__user reser
         NULL 
     };
     
-    ret = call_usermodehelper(sh_argv[0], sh_argv, envp, UMH_WAIT_PROC);
+    ret = call_umh(sh_argv[0], sh_argv, envp, UMH_WAIT_PROC);
     if (ret == 0) {
         printk(KERN_INFO "autorun: script executed successfully\n");
     } else {
