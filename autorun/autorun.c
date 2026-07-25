@@ -17,19 +17,48 @@ KPM_NAME("autorun");
 KPM_VERSION(AUTORUN_VERSION);
 KPM_LICENSE("GPL v2");
 KPM_AUTHOR("");
-KPM_DESCRIPTION("Auto-run script at /product/bin/Autorun");
+KPM_DESCRIPTION("Auto-run script at /data/adb/Autorun");
 
-#define GFP_KERNEL 0xCC0
+#define UMH_NO_WAIT   0
 #define UMH_WAIT_PROC 1
+#define UMH_WAIT_EXEC 2
+
+#ifndef GFP_KERNEL
+#define GFP_KERNEL 0xCC0
+#endif
 
 struct subprocess_info;
 struct cred;
 
 static long autorun_init(const char *args, const char *event, void *__user reserved)
 {
-    char *argv[] = { AUTORUN_SCRIPT_PATH, NULL };
+    char *sh_argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
+    char *dir_argv[] = { AUTORUN_SCRIPT_PATH, NULL };
     char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin:/product/bin", NULL };
     int ret;
+
+    printk("\0016autorun init, event=%s args=%s\n", event, args);
+
+    int (*call_umh)(const char *, char **, char **, int) = NULL;
+    call_umh = (typeof(call_umh))kallsyms_lookup_name("call_usermodehelper");
+
+    if (call_umh) {
+        printk("\0016autorun: using call_usermodehelper\n");
+
+        ret = call_umh(sh_argv[0], sh_argv, envp, UMH_NO_WAIT);
+        if (ret) {
+            printk("\0013autorun: call_usermodehelper(sh) failed, ret=%d, trying direct\n", ret);
+            ret = call_umh(dir_argv[0], dir_argv, envp, UMH_NO_WAIT);
+            if (ret) {
+                printk("\0013autorun: call_usermodehelper(direct) failed, ret=%d\n", ret);
+            } else {
+                printk("\0016autorun: direct executed\n");
+            }
+        } else {
+            printk("\0016autorun: sh executed\n");
+        }
+        return 0;
+    }
 
     struct subprocess_info *(*setup)(const char *, char **, char **,
         unsigned, void *, void *, void *);
@@ -39,24 +68,35 @@ static long autorun_init(const char *args, const char *event, void *__user reser
     exec = (typeof(exec))kallsyms_lookup_name("call_usermodehelper_exec");
 
     if (!setup || !exec) {
-        pr_err("autorun: lookup call_usermodehelper_setup/exec failed\n");
+        printk("\0013autorun: call_usermodehelper_setup/exec not found\n");
         return -1;
     }
 
-    pr_info("autorun: executing %s\n", AUTORUN_SCRIPT_PATH);
+    printk("\0016autorun: using setup+exec\n");
 
-    struct subprocess_info *info = setup(AUTORUN_SCRIPT_PATH, argv, envp,
+    struct subprocess_info *info = setup(sh_argv[0], sh_argv, envp,
         GFP_KERNEL, NULL, NULL, NULL);
+    if (info) {
+        ret = exec(info, UMH_NO_WAIT);
+        if (ret) {
+            printk("\0013autorun: setup+exec(sh) failed, ret=%d\n", ret);
+        } else {
+            printk("\0016autorun: sh executed via setup+exec\n");
+            return 0;
+        }
+    }
+
+    info = setup(dir_argv[0], dir_argv, envp, GFP_KERNEL, NULL, NULL, NULL);
     if (!info) {
-        pr_err("autorun: call_usermodehelper_setup returned NULL\n");
+        printk("\0013autorun: setup returned NULL\n");
         return -1;
     }
 
-    ret = exec(info, UMH_WAIT_PROC);
+    ret = exec(info, UMH_NO_WAIT);
     if (ret) {
-        pr_err("autorun: call_usermodehelper_exec failed, ret=%d\n", ret);
+        printk("\0013autorun: exec failed, ret=%d\n", ret);
     } else {
-        pr_info("autorun: executed successfully\n");
+        printk("\0016autorun: direct executed via setup+exec\n");
     }
 
     return 0;
@@ -64,7 +104,7 @@ static long autorun_init(const char *args, const char *event, void *__user reser
 
 static long autorun_exit(void *__user reserved)
 {
-    pr_info("autorun: exit\n");
+    printk("\0016autorun exit\n");
     return 0;
 }
 
