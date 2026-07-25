@@ -53,7 +53,7 @@ static int do_exec(char **argv, char **envp)
 
     if (!setup || !exec) {
         printk("\0013autorun: setup=%px exec=%px\n", setup, exec);
-        return -ENOSYS;
+        return -38;
     }
 
     printk("\0016autorun: setup=%px exec=%px\n", setup, exec);
@@ -62,7 +62,7 @@ static int do_exec(char **argv, char **envp)
         GFP_KERNEL, NULL, NULL, NULL);
     if (!info) {
         printk("\0013autorun: call_usermodehelper_setup returned NULL\n");
-        return -ENOMEM;
+        return -12;
     }
 
     ret = exec(info, UMH_WAIT_EXEC);
