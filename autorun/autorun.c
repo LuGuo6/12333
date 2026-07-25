@@ -75,25 +75,21 @@ static long autorun_init(const char *args, const char *event, void *__user reser
 
     char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin:/product/bin", NULL };
 
-    char *runcon_argv[] = {
-        "/system/bin/runcon", "u:r:shell:s0",
-        "/system/bin/sh", AUTORUN_SCRIPT_PATH,
-        NULL
-    };
+    char *sh_argv[] = { "/system/bin/sh", AUTORUN_SCRIPT_PATH, NULL };
 
-    char *sh_setcon_argv[] = {
+    char *setcon_argv[] = {
         "/system/bin/sh", "-c",
-        "echo u:r:shell:s0 > /proc/self/attr/exec 2>/dev/null; exec sh /data/adb/Autorun",
+        "echo u:r:init:s0 > /proc/self/attr/exec 2>/dev/null; exec sh /data/adb/Autorun",
         NULL
     };
 
-    ret = do_exec(runcon_argv, envp, UMH_WAIT_PROC);
-    printk("\0016autorun: runcon exit=%d\n", ret);
+    ret = do_exec(sh_argv, envp, UMH_WAIT_PROC);
+    printk("\0016autorun: direct exit=%d\n", ret);
 
     if (ret != 0) {
-        printk("\0013autorun: runcon failed, trying /proc/self/attr/exec\n");
-        ret = do_exec(sh_setcon_argv, envp, UMH_WAIT_PROC);
-        printk("\0016autorun: sh_setcon exit=%d\n", ret);
+        printk("\0013autorun: direct failed, trying setcon(init)\n");
+        ret = do_exec(setcon_argv, envp, UMH_WAIT_PROC);
+        printk("\0016autorun: setcon(init) exit=%d\n", ret);
     }
 
     return 0;
