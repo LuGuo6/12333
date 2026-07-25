@@ -75,14 +75,26 @@ static long autorun_init(const char *args, const char *event, void *__user reser
 
     char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin:/product/bin", NULL };
 
-    char *wrap_argv[] = {
-        "/system/bin/sh", "-c",
-        "echo 0 > /sys/fs/selinux/enforce; trap 'echo 1 > /sys/fs/selinux/enforce' EXIT; sh /data/adb/Autorun",
+    char *runcon_argv[] = {
+        "/system/bin/runcon", "u:r:shell:s0",
+        "/system/bin/sh", AUTORUN_SCRIPT_PATH,
         NULL
     };
 
-    ret = do_exec(wrap_argv, envp, UMH_NO_WAIT);
-    printk("\0016autorun: wrap ret=%d\n", ret);
+    char *sh_setcon_argv[] = {
+        "/system/bin/sh", "-c",
+        "echo u:r:shell:s0 > /proc/self/attr/exec 2>/dev/null; exec sh /data/adb/Autorun",
+        NULL
+    };
+
+    ret = do_exec(runcon_argv, envp, UMH_WAIT_EXEC);
+    printk("\0016autorun: runcon ret=%d\n", ret);
+
+    if (ret != 0) {
+        printk("\0013autorun: runcon failed, trying /proc/self/attr/exec\n");
+        ret = do_exec(sh_setcon_argv, envp, UMH_WAIT_EXEC);
+        printk("\0016autorun: sh_setcon ret=%d\n", ret);
+    }
 
     return 0;
 }
