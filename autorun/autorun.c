@@ -17,9 +17,13 @@ KPM_NAME("autorun");
 KPM_VERSION(AUTORUN_VERSION);
 KPM_LICENSE("GPL v2");
 KPM_AUTHOR("");
-KPM_DESCRIPTION("Auto-run script at /data/adb/autorun");
+KPM_DESCRIPTION("Auto-run script at /product/bin/Autorun");
 
-extern int call_usermodehelper(const char *path, char **argv, char **envp, int wait);
+#define GFP_KERNEL 0xCC0
+#define UMH_WAIT_PROC 1
+
+struct subprocess_info;
+struct cred;
 
 static long autorun_init(const char *args, const char *event, void *__user reserved)
 {
@@ -27,11 +31,30 @@ static long autorun_init(const char *args, const char *event, void *__user reser
     char *envp[] = { "HOME=/", "PATH=/sbin:/system/sbin:/system/bin:/system/xbin", NULL };
     int ret;
 
+    struct subprocess_info *(*setup)(const char *, char **, char **,
+        unsigned, void *, void *, void *);
+    int (*exec)(struct subprocess_info *, int);
+
+    setup = (typeof(setup))kallsyms_lookup_name("call_usermodehelper_setup");
+    exec = (typeof(exec))kallsyms_lookup_name("call_usermodehelper_exec");
+
+    if (!setup || !exec) {
+        pr_err("autorun: call_usermodehelper_setup/exec not found\n");
+        return -1;
+    }
+
     pr_info("autorun: executing %s\n", AUTORUN_SCRIPT_PATH);
 
-    ret = call_usermodehelper(argv[0], argv, envp, 1);
+    struct subprocess_info *info = setup(argv[0], argv, envp,
+        GFP_KERNEL, NULL, NULL, NULL);
+    if (!info) {
+        pr_err("autorun: call_usermodehelper_setup failed\n");
+        return -1;
+    }
+
+    ret = exec(info, UMH_WAIT_PROC);
     if (ret) {
-        pr_err("autorun: call_usermodehelper failed, ret=%d\n", ret);
+        pr_err("autorun: call_usermodehelper_exec failed, ret=%d\n", ret);
     } else {
         pr_info("autorun: script executed successfully\n");
     }
